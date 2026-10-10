@@ -123,7 +123,11 @@ class ConversationService:
         with self.store.lock: state = self.store.get(sid) or Session()
         revision = state.revision; before = state.model_copy(deep=True)
         active = state.phase != Phase.COMPLETE and state.handoff != 'requested'; was_verified, had_case = state.verified, state.case_id
-        model_mode = bool(active and self.conversation and self.conversation.mode == 'model')
+        # POST_PROCESS is a deterministic consent gate. Calling the model here
+        # can only delay or block an exact send/skip decision; it has no authority
+        # to change the pending offer or authorize the outbox side effect.
+        model_mode = bool(active and state.phase != Phase.POST_PROCESS and
+                          self.conversation and self.conversation.mode == 'model')
         if not model_mode: state.identity.update(identity(text))
         if not model_mode and state.phase == Phase.VERIFY_ID and not state.opening_message: state.opening_message = redact(text, state.identity)
         # Exact claim IDs are safe to detect locally; access still depends on the

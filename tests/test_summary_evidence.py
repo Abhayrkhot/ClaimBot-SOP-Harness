@@ -5,6 +5,7 @@ it does not exercise external delivery because the project intentionally uses a
 simulated outbox.
 """
 from app.models import DocumentMemory, Phase
+from app.conversation import ConversationEngine
 from test_lean_requirements import SAMPLE, service
 
 
@@ -59,3 +60,21 @@ def test_hosted_demo_full_email_preview_flow():
     assert 'recorded as denied' in preview['body']
     assert 'pathology report' in preview['body'] and 'office note' in preview['body']
     assert 'member portal' in preview['body']
+
+
+def test_post_process_consent_does_not_depend_on_model_provider():
+    """An unavailable provider must not block deterministic send consent."""
+    class UnavailableProvider:
+        def complete(self, *args, **kwargs):
+            raise AssertionError('POST_PROCESS must not call the model')
+
+    agent = service()
+    agent.respond('consent', SAMPLE)
+    agent.respond('consent', 'done')
+    agent.conversation = ConversationEngine(provider=UnavailableProvider())
+
+    reply, state = agent.respond('consent', 'send')
+    assert state.phase == Phase.COMPLETE
+    assert state.email_choice == 'queued_demo'
+    assert agent.store.message_for('consent')['to'] == 'margaret@email.com'
+    assert 'No real email was sent' in reply

@@ -26,9 +26,11 @@ the complete browser workflow. The service uses synthetic records, and the email
 shown at the end is a preview only; no external message is delivered. A free
 Render instance may need a short warm-up after it has been idle.
 
-The hosted deployment currently runs in limited **rules mode** because no model
-provider token is configured. Use the guided demo inputs below. Configure a
-supported provider for broader natural-language interpretation.
+The hosted deployment is configured in **model mode** through a compatible
+provider. The deterministic workflow remains responsible for verification,
+claim ownership, phase transitions, grounding, and email consent. If the model
+provider is unavailable, the application preserves state and returns safe
+recovery instead of guessing through keyword routing.
 
 Health endpoint:
 [https://claimbot-sop-harness.onrender.com/api/health](https://claimbot-sop-harness.onrender.com/api/health)
