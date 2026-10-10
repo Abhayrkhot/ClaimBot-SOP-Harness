@@ -1,0 +1,302 @@
+# ClaimBot — Insurance Claims SOP Harness
+
+ClaimBot is a text-based insurance support demo that combines a language model's
+semantic interpretation with a deterministic business workflow:
+
+```text
+VERIFY_ID → RESOLVE_INTENT → PROCESS_CASE → POST_PROCESS → COMPLETE
+```
+
+The model interprets customer messages. Application code verifies identity,
+checks claim ownership, controls phase transitions, selects grounded claim facts,
+and authorizes the simulated email action. A small browser UI shows the current
+phase and whether a reply used the model or safe recovery.
+
+All included customers and claims are synthetic. Email delivery and human
+transfer are simulated; neither contacts an external recipient.
+
+## Do I need a paid API key?
+
+No. The recommended no-credit setup uses **Ollama** and the included
+`.env.ollama` configuration to run a model locally. It exercises the same
+structured model interface and deterministic safety gates as a hosted provider.
+
+ClaimBot supports three runtime options:
+
+1. **Local Ollama:** full model-backed demo without cloud API credits. Follow
+   [Local Ollama demo](#local-ollama-demo).
+2. **Hosted model provider:** set an OpenAI-compatible or Anthropic API token.
+   The workflow code does not change when the provider changes.
+3. **No model configured:** the service still starts in limited rules mode for
+   labeled inputs and deterministic workflow demonstrations. This mode is not a
+   substitute for evaluating natural-language understanding.
+
+## Quick start: Docker with an API token
+
+Prerequisite: Docker with Docker Compose. Run these commands from this directory.
+
+```sh
+cp .env.example .env
+```
+
+Edit `.env` and set your provider credentials and model. For example, for an
+OpenAI-compatible provider:
+
+```dotenv
+OPENAI_API_KEY=your-api-token
+LLM_MODEL=your-model-name
+# Set this only for a compatible third-party endpoint:
+# LLM_BASE_URL=https://your-provider.example/v1
+```
+
+The endpoint must support chat completions with JSON-schema structured output.
+`LLM_API_KEY` is an alternative to `OPENAI_API_KEY`. For Anthropic, set
+`ANTHROPIC_API_KEY` and `LLM_MODEL`, leaving `LLM_BASE_URL` and the other keys
+empty. Choose a model that supports structured output. Only configure one provider.
+
+```sh
+docker compose up --build -d
+```
+
+Open **[http://localhost:8000](http://localhost:8000)**. A successful build alone
+does not start the service; `up` builds and starts it. The API health endpoint is
+[http://localhost:8000/api/health](http://localhost:8000/api/health).
+
+```sh
+docker compose logs --tail=50 agent
+docker compose stop
+```
+
+Without a provider token the application starts in **rules mode**, a limited
+offline demonstration with labeled identity inputs. Use model mode to evaluate
+natural-language understanding. A configured but failing model produces safe
+recovery, rather than silently routing the message through the rules parser.
+
+## Local Ollama demo
+
+For Docker Desktop on macOS/Windows, install and start Ollama, then download the
+model used by the included configuration:
+
+```sh
+ollama pull qwen2.5:3b
+docker compose --env-file .env.ollama -p claimbot-lean-local up --build -d
+```
+
+Open **[http://localhost:8001](http://localhost:8001)**. `.env.ollama` uses
+`host.docker.internal` to reach Ollama on the host and a non-secret placeholder
+token. On Linux, use a reachable host address or configure Docker's host gateway
+mapping before using this configuration.
+
+```sh
+docker compose --env-file .env.ollama -p claimbot-lean-local logs --tail=50 agent
+docker compose --env-file .env.ollama -p claimbot-lean-local stop
+```
+
+`qwen2.5:3b` is a small local evaluation model. Its semantic accuracy and latency
+depend on the message and hardware; valid structured output does not guarantee
+correct interpretation. See the recorded results below.
+
+## Hosting
+
+The assignment accepts a Docker image or repository with setup instructions, so
+local Docker is sufficient for submission. A cloud deployment can build the
+included `Dockerfile`; configure `SESSION_DB` and one supported model provider in
+the host's environment-variable dashboard. Secrets are never stored in this
+repository. `.env.example` documents variable names only.
+
+A hosted service cannot call Ollama running on your laptop. Use a provider token
+for a public cloud demo, or run the no-credit Ollama setup locally. If a hosted
+service starts without a provider token, it exposes only the limited rules-mode
+demonstration described above.
+
+## Run with Python
+
+Python 3.12 is the Docker target. From the project directory:
+
+```sh
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements-dev.txt
+```
+
+Set the same environment variables in your terminal. For local Ollama outside
+Docker:
+
+```sh
+export OPENAI_API_KEY=ollama
+export LLM_BASE_URL=http://127.0.0.1:11434/v1
+export LLM_MODEL=qwen2.5:3b
+python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+```
+
+The Python entry point does not automatically load `.env`. Without `SESSION_DB`,
+Python uses an in-memory database. Set `SESSION_DB` to a writable SQLite file to
+persist sessions; Docker already persists it in a named volume.
+
+## Five-minute demo
+
+Start a **New chat** for each independent scenario. Wait for each reply before
+sending the next message.
+
+1. Enter: `My name is Margaret Chen. I'm calling about my denied healthcare claim from January. I don't have the pathology report.`
+   The agent must keep claim details protected and ask for two more identity fields.
+2. Enter: `DOB is 1985-03-15, SSN last four is 4472.`
+   It should greet Margaret, use the remembered claim hint to select `CL-2048`,
+   explain the recorded denial reason, and remember the missing report.
+3. Enter: `What documents do I need, and where do I send them?`
+   The response should use the fixture's document and submission guidance.
+4. Enter: `When was the denial decision made?`
+   The agent should say the decision date is unavailable, without substituting
+   the claim filing date or appeal deadline.
+5. Enter: `That's all, thank you.`
+   The agent should offer an email summary and wait for a decision.
+6. Enter: `send`
+   The UI should show a demo email preview and close the conversation. No email
+   is delivered. In another run, use `skip` and verify no summary is queued.
+
+Additional checks:
+
+- **Unlabeled identity:** `Margaret Chen, 1985-03-15, 4472.` in a new model-mode
+  chat. Then ask about the denied healthcare claim from January.
+- **Insufficient identity:** give only a name and date of birth, then demand a
+  denial explanation. Claim details must remain protected.
+- **Ownership:** after verifying Margaret, ask for `CL-3001`. It belongs to a
+  different synthetic customer and must not be disclosed.
+- **Frustration:** `This is ridiculous. Just tell me why my claim was denied.`
+  before verification. Expect empathy and the same identity gate.
+- **Scope:** ask `What is reinforcement learning?` repeatedly. Expect a polite
+  scope refusal and, after repeated unrelated turns, a human-support offer.
+- **Model failure:** if the model is unavailable, expect a limited-response
+  recovery message without an unintended state transition or action.
+
+Alternative synthetic identity fields for Margaret are phone `+16505212836` and
+email `margaret@email.com`. A policy number such as `POL-9921` does **not** count
+as one of the three required PII fields. Fixture appeal deadlines are historical;
+answers about whether a deadline has passed use the current date.
+
+## Architecture and trust boundaries
+
+- **VERIFY_ID:** the model extracts schema-validated identity candidates from
+  the caller's current message. Source evidence and field formats are checked
+  locally. The model never receives the policyholder database. The repository
+  requires at least three matching fields for one customer before granting
+  access. Partial answers are accumulated; ambiguous inputs require clarification.
+- **RESOLVE_INTENT:** the semantic interpreter identifies claim hints and
+  questions. The repository resolves only claims belonging to the verified
+  customer. Missing or ambiguous references lead to clarification.
+- **PROCESS_CASE:** requested topics map to approved facts from the selected
+  claim and document guidance. Replies are assembled from those facts, with
+  concise greetings and empathy. Unknown information remains unknown.
+- **POST_PROCESS:** finishing claim discussion offers a summary to the registered
+  email address. Only a pending offer followed by explicit `send` queues it;
+  `skip` declines. The transaction stores the decision and demo outbox entry.
+
+Model-enabled turns do not use the rules-mode keyword intent router. Provider
+adapters share a `complete(name, schema, prompt, context, timeout)` interface, so
+changing credentials/model configuration does not change the business workflow.
+Interpretation errors restore the prior business state and return safe recovery.
+`LLM_TURN_BUDGET_SECONDS` sets the shared model-call budget for a turn (45 seconds
+by default).
+
+Memory includes collected identity fields, claim hints, pending questions and
+topics, document availability, recent dialogue, and discussed facts. It is bounded
+session memory; it is not a guarantee that arbitrary information will be retained
+or correctly understood across every possible conversation.
+
+## Requirement coverage and limits
+
+- [x] Four ordered SOP phases, plus a terminal `COMPLETE` state.
+- [x] Three-of-five identity verification and protected claim ownership checks.
+- [x] Structured model interpretation, with deterministic workflow authorization.
+- [x] Cross-phase memory for claim hints, questions, and document availability.
+- [x] Grounded claim answers and explicit handling of unavailable information.
+- [x] Out-of-scope rejection and repeated-topic human-support offer.
+- [x] Empathetic responses and alternate identity-field choices.
+- [x] Optional email summary with a deterministic consent gate and visible preview.
+- [x] Browser chat UI, Docker setup, API-token configuration, and automated tests.
+- [ ] Real SMTP delivery and live human transfer: simulated by design.
+- [ ] Exhaustive natural-language coverage: evaluation is finite and model-specific.
+- [ ] Production identity proofing, account authentication, encrypted storage,
+  rate limiting, and operational monitoring: outside this demonstration.
+
+The compact implementation uses bounded fact templates, supported fixture claim
+types, and explicit `send`/`skip` commands for email. It does not promise arbitrary
+free-form response generation, universal memory, or human-level emotional support.
+
+## Tests and evidence
+
+Run deterministic regressions and static checks without a model:
+
+```sh
+python -m pytest -m "not live" -q
+python -m ruff check app tests scripts
+```
+
+For one reproducible offline report, run `python scripts/evaluate.py`. It writes
+test output, JUnit XML, lint output, and return codes under `evaluation-results/`.
+
+Opt into live tests explicitly; these send synthetic messages to the configured
+provider and may incur provider charges. For Ollama on the host:
+
+```sh
+RUN_LIVE_EVAL=1 OPENAI_API_KEY=ollama \
+LLM_BASE_URL=http://127.0.0.1:11434/v1 LLM_MODEL=qwen2.5:3b \
+python -m pytest -m live -q
+```
+
+To retain transcripts and source hashes, add `-p scripts.live_capture` and set
+`LIVE_RESULTS_DIR` to a fresh directory. Then run:
+
+```sh
+python scripts/summarize_live.py path/to/live-results
+```
+
+Read **[VERIFICATION.md](VERIFICATION.md)** for the latest run and its exact scope.
+**[LIVE_EVALUATION.md](LIVE_EVALUATION.md)** provides live-model evidence. Earlier
+runs and source revisions must not be treated as current passing results.
+
+Interpret results separately: **semantic accuracy** asks whether the model chose
+the intended meaning; **SOP compliance** asks whether gates, ownership, grounding,
+and consent held; **conversational quality** asks whether the response was useful,
+concise, and appropriately empathetic. A passing assertion count alone does not
+establish all three.
+
+## Project map
+
+- `app/main.py`: FastAPI endpoints and UI serving.
+- `app/workflow.py`: deterministic workflow, recovery, consent, and responses.
+- `app/conversation.py`: model adapters, prompts, and structured interpretation.
+- `app/identity.py`: identity candidate schemas, evidence checks, and normalization.
+- `app/models.py`: typed session and interpretation data.
+- `app/repository.py`: identity matching, ownership, fixtures, and approved facts.
+- `app/store.py`: SQLite session transactions and idempotent demo outbox.
+- `app/index.html`: browser chat UI.
+- `fixtures/`: synthetic policyholders, claims, and document guidance.
+- `tests/`: offline regression tests and opt-in live probes.
+- `scripts/`: evaluation and evidence capture utilities.
+
+The JSON API exposes `POST /api/chat`, `POST /api/end`, and `GET /api/health`.
+Interactive endpoint documentation is available at `/docs`. `/api/outbox` is
+disabled unless `ADMIN_API_TOKEN` is configured, then requires the corresponding
+Bearer token. A session may view only its own queued summary through `/api/chat`.
+
+## Privacy and operational notes
+
+Use synthetic data for this demo. Identity extraction sends the current
+verification message to the configured model; follow-up semantic interpretation
+uses redacted identity text. Redaction is best-effort and is not a production DLP
+guarantee. Raw candidate values can exist in session storage until verification;
+live evaluation transcripts intentionally retain synthetic inputs and outputs.
+
+Docker binds the app to localhost and runs it as a non-root user. Sessions expire
+after 30 minutes of inactivity; expired rows are cleaned during subsequent
+transactions. Session identifiers are bearer capabilities, not authenticated user
+accounts. The SQLite volume and environment files are not encrypted by this app.
+Keep `.env`, real tokens, and production customer data out of submissions.
+
+If replies show **Secure workflow mode**, check that a provider token is set.
+If they show **Limited response mode**, check the provider endpoint, model's
+structured-output support, availability, and server logs. `/api/health` reports
+configuration and application health; a live chat is needed to verify the model.
+If the port is occupied, set `HOST_PORT` in the Compose environment and use that
+port in the browser.

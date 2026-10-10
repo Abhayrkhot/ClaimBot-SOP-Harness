@@ -1,0 +1,7 @@
+[tool.ruff]
+target-version = "py312"
+line-length = 120
+
+[tool.ruff.lint]
+# This comparison build permits compact statements; enforce correctness checks.
+select = ["E9", "F"]
