@@ -19,6 +19,20 @@ phase and whether a reply used the model or safe recovery.
 All included customers and claims are synthetic. Email delivery and human
 transfer are simulated; neither contacts an external recipient.
 
+## Hosted demo
+
+Open **[ClaimBot on Render](https://claimbot-sop-harness.onrender.com/)** to test
+the complete browser workflow. The service uses synthetic records, and the email
+shown at the end is a preview only; no external message is delivered. A free
+Render instance may need a short warm-up after it has been idle.
+
+The hosted deployment currently runs in limited **rules mode** because no model
+provider token is configured. Use the guided demo inputs below. Configure a
+supported provider for broader natural-language interpretation.
+
+Health endpoint:
+[https://claimbot-sop-harness.onrender.com/api/health](https://claimbot-sop-harness.onrender.com/api/health)
+
 ## Do I need a paid API key?
 
 No. The recommended no-credit setup uses **Ollama** and the included
@@ -157,6 +171,19 @@ sending the next message.
 6. Enter: `send`
    The UI should show a demo email preview and close the conversation. No email
    is delivered. In another run, use `skip` and verify no summary is queued.
+
+The hosted email-preview regression uses this exact closing exchange:
+
+```text
+Caller: That’s all. I’m done with my claim questions.
+ClaimBot: Would you like an email summary ...? Reply send or skip.
+Caller: send
+ClaimBot: I've prepared your summary and queued it in our demo outbox.
+```
+
+The automated case verifies the `POST_PROCESS` transition, pending consent,
+single simulated outbox entry, registered recipient, grounded denial outcome,
+discussion content, and document-submission next step.
 
 Additional checks:
 
