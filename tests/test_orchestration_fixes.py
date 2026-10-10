@@ -1,3 +1,9 @@
+"""Regression tests for state orchestration and safe model-failure recovery.
+
+Controlled interpretations reproduce earlier boundary failures and verify that
+remembered questions, claim switching, transaction rollback, and phase control
+remain correct under retries and provider errors.
+"""
 from datetime import date
 
 from app.conversation import ConversationEngine

@@ -1,3 +1,4 @@
+# Fully pinned runtime dependencies for repeatable API and model-provider builds.
 annotated-types==0.8.0
 anthropic==1.12.1
 anyio==4.15.1

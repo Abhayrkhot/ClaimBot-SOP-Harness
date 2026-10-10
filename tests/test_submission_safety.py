@@ -1,4 +1,9 @@
-"""Submission regressions for contextual identity and partial-verification scope."""
+"""Submission safety regressions for identity context and verification scope.
+
+The fake extractor deliberately proposes unsafe candidates to prove that local
+attribution checks are independent. Related cases verify that partial identity
+never unlocks claim facts and unrelated requests never advance the SOP.
+"""
 import pytest
 
 from app.conversation import ConversationEngine

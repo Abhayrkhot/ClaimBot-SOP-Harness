@@ -1,4 +1,9 @@
-"""Typed state and untrusted model output."""
+"""Typed contracts for untrusted interpretation and trusted session state.
+
+Pydantic models keep semantic proposals explicit and bounded. ``Session`` is
+the durable state machine record; it stores only the information needed to
+resume the SOP, ground future answers, and audit consent-related decisions.
+"""
 from enum import StrEnum
 from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field

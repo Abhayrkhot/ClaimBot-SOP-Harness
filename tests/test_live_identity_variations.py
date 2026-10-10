@@ -1,4 +1,9 @@
-"""Identity language evaluation with real extraction and deterministic verification."""
+"""Live identity-language evaluation across order, format, and correction forms.
+
+The production extractor sees each natural variation, while the deterministic
+repository remains solely responsible for the final three-of-five verification.
+Negative cases make sure plausible-looking third-party details stay protected.
+"""
 import pytest
 
 from app.conversation import ConversationEngine

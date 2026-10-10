@@ -1,4 +1,10 @@
-"""Fixture-backed ownership and approved claim statements."""
+"""Fixture-backed identity, claim ownership, and grounding repository.
+
+Raw JSON records are converted into narrowly approved facts instead of being
+sent wholesale to the model. This makes ownership checks and missing-data
+behavior deterministic while keeping the fixture layer replaceable with real
+policyholder, claim, and document services in a production integration.
+"""
 import json
 from datetime import date
 from pathlib import Path
@@ -8,15 +14,18 @@ ALIASES = {'pathology report': 'original pathology report', 'office note': 'trea
 ABSENT = {'missing.appeal_decision': 'The available record contains no appeal decision, so I cannot confirm whether an appeal was denied.', 'missing.decision_date': 'No denial-decision date is recorded. The filing date and appeal deadline do not establish when a decision was made.', 'missing.notification_history': 'No notification history is available, so I cannot confirm whether, when, or how a notice was sent, or why you did not receive one.', 'missing.other': 'The available record does not answer that question. A representative would need to check the relevant information.'}
 
 def norm(value, field=''):
+    """Apply field-specific canonicalization for deterministic comparisons."""
     return ''.join(c for c in str(value) if c.isdigit())[-10:] if field == 'phone' else ' '.join(str(value).casefold().split())
 
 class Repository:
+    """Read synthetic records and enforce customer-to-claim ownership."""
     def __init__(self, root=None):
         root = Path(root or Path(__file__).resolve().parents[1] / 'fixtures')
         self.people = json.loads((root / 'policyholders.json').read_text()); self.claims = json.loads((root / 'claims.json').read_text())
         self.guidance = json.loads((root / 'required_document_guideline.json').read_text()); self.schema = json.loads((root / 'claim_schema.json').read_text())
 
     def verify(self, identity, required=3):
+        """Require at least ``required`` matching fields for one policyholder."""
         if not 3 <= required <= len(FIELDS): raise ValueError('Identity verification requires three to five fields')
         matches = []
         for person in self.people:
@@ -34,6 +43,8 @@ class Repository:
     def person(self, party_id): return next(p for p in self.people if p['party_id'] == party_id)
 
     def claims_for(self, party_id, hint):
+        """Filter only the verified party's claims using remembered case hints."""
+        # Ownership is the first filter; no later hint can widen this set.
         found = [c for c in self.claims if c['party_id'] == party_id]
         if hint.case_id: return [c for c in found if c['case_id'] == hint.case_id]
         for field in ('case_type', 'status'):
@@ -51,6 +62,9 @@ class Repository:
         return entry['en'].format(case_id=claim['case_id'], documents=', '.join(claim.get('documents_needed', [])), average_processing_time_after_submission=self.guidance['claim_followup_settings']['average_processing_time_after_submission']['en'])
 
     def facts(self, claim, today):
+        """Build an allowlist of answerable statements for one owned claim."""
+        # Missing facts receive explicit language so response composition never
+        # substitutes nearby dates, amounts, or events.
         docs = claim.get('documents_needed', []); out = dict(ABSENT)
         out['claim.status'] = f"Claim {claim['case_id']} is recorded as {claim['status']}."
         out['claim.filed_date'] = f"The claim was filed on {claim['created_at']}; this is not a denial-decision date."

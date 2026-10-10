@@ -1,4 +1,9 @@
-"""Pytest plugin: retain live synthetic transcripts and provider output per test."""
+"""Capture opt-in live-model calls and workflow transitions during pytest.
+
+The plugin wraps provider and service boundaries only for marked live tests. It
+stores synthetic prompts, validated outputs, timings, state snapshots, and test
+outcomes so semantic accuracy can be reviewed separately from SOP compliance.
+"""
 import hashlib
 import json
 import os
@@ -13,6 +18,7 @@ OUT = Path(os.environ.get('LIVE_RESULTS_DIR', ROOT / 'evaluation-results' / 'liv
 
 @pytest.fixture(autouse=True)
 def capture_live(request, monkeypatch):
+    """Attach per-test tracing without changing production application code."""
     if not request.node.get_closest_marker('live'):
         return
     from app.conversation import OpenAIProvider
@@ -58,6 +64,7 @@ def capture_live(request, monkeypatch):
 
 @pytest.hookimpl(hookwrapper=True)
 def pytest_runtest_makereport(item, call):
+    """Persist one JSONL record after each live test completes."""
     outcome = yield
     report = outcome.get_result()
     if report.when != 'call' or not hasattr(item, 'live_record'):
@@ -70,6 +77,7 @@ def pytest_runtest_makereport(item, call):
 
 
 def pytest_sessionstart(session):
+    """Create a fresh evidence directory and record the tested source revision."""
     OUT.mkdir(parents=True, exist_ok=True)
     metadata = {
         'model': os.getenv('LLM_MODEL'), 'base_url': os.getenv('LLM_BASE_URL'),

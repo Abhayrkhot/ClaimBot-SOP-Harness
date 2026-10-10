@@ -1,3 +1,5 @@
+# Local single-service deployment. The host port and model provider are selected
+# through environment variables; session data survives restarts in a named volume.
 services:
   agent:
     build: .

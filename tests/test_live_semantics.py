@@ -1,3 +1,9 @@
+"""End-to-end live-model corpus for semantic generalization and SOP safety.
+
+These opt-in cases use the configured provider through the production adapter.
+They measure paraphrase understanding while continuing to assert deterministic
+verification, ownership, grounding, and consent behavior.
+"""
 from datetime import date
 
 import pytest

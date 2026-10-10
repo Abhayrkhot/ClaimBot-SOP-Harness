@@ -1,3 +1,9 @@
+"""Core acceptance tests mapped to the four-phase assignment requirements.
+
+The suite exercises verification, cross-phase memory, grounded case processing,
+scope handling, consent, persistence, and the HTTP surface with deterministic
+fixtures so safety invariants do not depend on a live model.
+"""
 from datetime import date
 from fastapi.testclient import TestClient
 from pydantic import ValidationError

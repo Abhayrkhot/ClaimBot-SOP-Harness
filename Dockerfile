@@ -1,3 +1,5 @@
+# Production-like demo image: small Python runtime, non-root process, persistent
+# state mounted at /data, and an HTTP health check for container orchestration.
 FROM python:3.12-slim
 WORKDIR /service
 

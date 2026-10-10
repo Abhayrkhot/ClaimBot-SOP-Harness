@@ -1,3 +1,4 @@
+<!-- Explains observed live-model failures and the architectural fixes they motivated. -->
 # Root-cause analysis
 
 This analysis uses the 9 October 2026 `qwen2.5:3b` transcripts captured before

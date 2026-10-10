@@ -1,3 +1,9 @@
+"""Verify that the consented summary contains grounded, actionable evidence.
+
+The test checks content and recipient selection after a real workflow session;
+it does not exercise external delivery because the project intentionally uses a
+simulated outbox.
+"""
 from app.models import DocumentMemory
 from test_lean_requirements import SAMPLE, service
 

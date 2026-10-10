@@ -1,4 +1,10 @@
-"""Validate model-extracted evidence; no model values can authorize identity."""
+"""Validate identity evidence at the model-to-application trust boundary.
+
+The model may point to exact substrings in the current message, but local code
+checks attribution, format, and provenance before accepting a candidate. The
+repository performs the actual three-of-five match, so model output alone can
+never verify a caller.
+"""
 import re
 from datetime import datetime
 from typing import Annotated, Literal
@@ -41,6 +47,7 @@ class IdentityAssertion(BaseModel):
 
 
 def normalize(field, source):
+    """Normalize an evidence substring only after its format is locally valid."""
     value = source.strip()
     if field == 'dob':
         dates = set()
@@ -60,6 +67,7 @@ def normalize(field, source):
 
 
 def evidence_schema(text, schema):
+    """Constrain model candidate values to literal substrings of this message."""
     """Constrain generated values to type-compatible spans of this message, never a record."""
     tokens = list(re.finditer(r'\S+', text))
     spans = list(dict.fromkeys(text[a.start():b.end()].strip(' ,.;:[]"“”')
@@ -75,6 +83,7 @@ def evidence_schema(text, schema):
 
 
 def is_identity_tuple(text, sources):
+    """Detect compact unlabeled identity lists that need attribution checking."""
     """An unlabeled verification list contains only supplied values and separators."""
     if not sources:
         return False
@@ -85,6 +94,7 @@ def is_identity_tuple(text, sources):
 
 
 def validated_candidates(text, extraction):
+    """Return canonical candidates whose cited evidence survives local checks."""
     result, spans = {}, []
     quoted_spans = [(match.start(), match.end()) for match in re.finditer(r'"[^"\n]*"|“[^”\n]*”', text)]
     for candidate in extraction.candidates:

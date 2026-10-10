@@ -1,3 +1,4 @@
+# Keep secrets, local state, Git history, and generated evidence out of images.
 .env
 .git
 __pycache__

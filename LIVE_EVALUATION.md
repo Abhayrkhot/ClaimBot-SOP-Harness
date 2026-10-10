@@ -1,3 +1,4 @@
+<!-- Records model-specific semantic results separately from deterministic safety. -->
 # Live model evaluation
 
 Date: 10 October 2026  

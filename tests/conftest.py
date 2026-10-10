@@ -1,3 +1,9 @@
+"""Shared test policy for deterministic and explicitly opt-in live suites.
+
+Provider variables are removed from ordinary tests so local credentials cannot
+silently change their behavior. Tests marked ``live`` run only when the caller
+sets ``RUN_LIVE_EVAL=1``.
+"""
 import os
 import pytest
 

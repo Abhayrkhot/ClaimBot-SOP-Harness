@@ -1,3 +1,4 @@
+<!-- Records the boundary changes that produced the current hybrid architecture. -->
 # Architectural changes
 
 - Added typed semantic proposals for claim action, completion, email consent,

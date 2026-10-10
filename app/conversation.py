@@ -1,4 +1,11 @@
-"""One model contract: interpret language and select approved fact IDs."""
+"""Provider-neutral semantic interpretation for customer messages.
+
+The model extracts structured identity candidates, conversational intent, and
+requested fact topics. Every response is schema-validated and treated as an
+untrusted proposal; the workflow and repository make all authorization choices.
+Keeping this boundary provider-neutral lets the same business logic use OpenAI,
+Anthropic, an OpenAI-compatible endpoint, or local Ollama.
+"""
 import json, logging, os, re, time
 from contextvars import ContextVar
 from .models import Interpretation, TopicSelection, Turn
@@ -14,12 +21,14 @@ TOPIC_PROMPT = '''Select only grounded fact topics requested in current_message.
 TOPIC_PROMPT += ''' Be precise: describing a claim is not a request for every field. An opening about a denied claim implicitly requests denial_reason only, unless specific questions request more. Identity details, greetings, and acknowledgments alone request no facts: return an empty list. Select all explicit requests in a multi-part question, but no merely related topics. Do not add payments, dates, notification history, or missing-data disclaimers unless asked. A date used to identify a claim is not a date question. Distinguish the original claim filing from filing an appeal; notification concerns communicating a decision, not making it. Use recent_history only to resolve references, never to repeat already answered questions.'''
 
 def redact(text, identity):
+    """Remove already-known identity values before later semantic model calls."""
     for key, value in sorted(identity.items(), key=lambda item: len(item[1]), reverse=True):
         if value: text = re.sub(re.escape(value), f'[{key} supplied]', text, flags=re.I)
     text = re.sub(r'\b[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}\b', '[email supplied]', text)
     return re.sub(r'(?<![\w-])\d[\d ()/-]{2,}\d(?!\w)', '[number supplied]', text)[:4000]
 
 def strict_schema(model):
+    """Return a closed JSON schema so providers cannot add undeclared fields."""
     schema = model.model_json_schema()
     def close(node):
         if isinstance(node, dict):
@@ -31,6 +40,7 @@ def strict_schema(model):
     close(schema); return schema
 
 class OpenAIProvider:
+    """Translate the common completion interface to chat-completions JSON."""
     def __init__(self, client, model): self.client, self.model = client, model
     def complete(self, name, schema, prompt, context, timeout):
         response = self.client.chat.completions.create(model=self.model, max_tokens=4096, temperature=0, timeout=timeout, response_format={'type':'json_schema','json_schema':{'name':name,'strict':True,'schema':schema}}, messages=[{'role':'system','content':prompt + '\n' + json.dumps(schema)}, {'role':'user','content':json.dumps(context)}])
@@ -38,6 +48,7 @@ class OpenAIProvider:
         return json.loads(response.choices[0].message.content)
 
 class AnthropicProvider:
+    """Translate the common completion interface to Anthropic tool use."""
     def __init__(self, client, model): self.client, self.model = client, model
     def complete(self, name, schema, prompt, context, timeout):
         response = self.client.messages.create(model=self.model, max_tokens=4096, timeout=timeout, system=prompt + '\n' + json.dumps(schema), output_config={'format':{'type':'json_schema','schema':schema}}, messages=[{'role':'user','content':json.dumps(context)}])
@@ -46,6 +57,7 @@ class AnthropicProvider:
         return json.loads(text)
 
 def build_provider():
+    """Construct exactly one configured provider, or return rules-only mode."""
     key = os.getenv('OPENAI_API_KEY') or os.getenv('LLM_API_KEY')
     if os.getenv('ANTHROPIC_API_KEY') and not os.getenv('LLM_BASE_URL'):
         from anthropic import Anthropic
@@ -56,14 +68,17 @@ def build_provider():
     return None
 
 class ConversationEngine:
+    """Run bounded semantic calls while sharing one deadline across the turn."""
     def __init__(self, provider=None, budget=None):
         self.provider = provider or build_provider(); self.mode = 'model' if self.provider else 'rules'; self.budget = budget or DEFAULT_BUDGET; self.deadline = ContextVar('deadline', default=None); self.cooldown = 0
     def begin_turn(self): self.deadline.set(time.monotonic() + self.budget)
     def failed(self, stage, error=None):
+        """Record diagnostics internally while returning a safe public failure."""
         now = time.monotonic()
         if not isinstance(error, ValueError) and now >= self.cooldown: self.cooldown = now + 15
         LOG.warning('LLM fallback: stage=%s error_type=%s', stage, type(error).__name__ if error else 'Unknown')
     def extract_identity(self, text, state):
+        """Extract current-message candidates and validate their source evidence."""
         if not self.provider or time.monotonic() < self.cooldown: raise RuntimeError('Model unavailable')
         context = {'message': text, 'phase': state.phase.value,
                    'already_collected_fields': list(state.identity),
@@ -75,6 +90,8 @@ class ConversationEngine:
             try:
                 slots = IdentitySlots.model_validate(raw)
                 sources = slots.model_dump(exclude_none=True, exclude={'subject'}) if slots.subject == 'caller' else {}
+                # Plausible values are insufficient: a second semantic check rejects
+                # quotations, hypotheticals, refusals, and another person's details.
                 if sources and not is_identity_tuple(text, sources):
                     remaining = (self.deadline.get() or time.monotonic() + self.budget) - time.monotonic()
                     if remaining <= 0: raise TimeoutError('Turn budget exhausted')
@@ -87,6 +104,8 @@ class ConversationEngine:
                     if not assertion.asserted_by_caller: sources = {}
                 extraction = IdentityExtraction(candidates=[{'field': field, 'source': value} for field, value in sources.items()])
                 values = validated_candidates(text, extraction)
+                # Dates are especially ambiguous in claims conversations, so an
+                # unlabeled date must be classified as DOB rather than event date.
                 if values.get('dob') and not is_identity_tuple(text, sources):
                     remaining = (self.deadline.get() or time.monotonic() + self.budget) - time.monotonic()
                     if remaining <= 0: raise TimeoutError('Turn budget exhausted')
@@ -104,6 +123,7 @@ class ConversationEngine:
             safe = safe.replace(source, f'[{field} supplied]')
         return values, redact(safe, state.identity)
     def interpret(self, text, state, facts=None):
+        """Interpret context or select topics without granting workflow authority."""
         if not self.provider or time.monotonic() < self.cooldown: raise RuntimeError('Model unavailable')
         remaining = (self.deadline.get() or time.monotonic() + self.budget) - time.monotonic()
         if remaining <= 0: raise TimeoutError('Turn budget exhausted')
@@ -114,6 +134,8 @@ class ConversationEngine:
         raw = self.provider.complete('Turn', strict_schema(Interpretation), PROMPT, context, remaining)
         if 'control' not in raw: return Turn.model_validate(raw)  # Backward-compatible provider contract.
         parsed = Interpretation.model_validate(raw)
+        # Topic selection is deliberately narrower than general interpretation;
+        # this reduces relevant-but-unrequested facts in the final response.
         if state.phase.value != 'POST_PROCESS' and parsed.control.scope in ('insurance', 'mixed') and parsed.control.action != 'finish':
             remaining = (self.deadline.get() or time.monotonic() + self.budget) - time.monotonic()
             if remaining <= 0: raise TimeoutError('Turn budget exhausted')

@@ -1,4 +1,9 @@
-"""Check relevance as well as required facts; use the production nested contract."""
+"""Check response relevance and precision through the production model contract.
+
+The controlled provider requests exact topics, including multi-part questions,
+so tests can detect unsolicited claim facts as well as missing required facts.
+This keeps concise conversation quality separate from authorization safety.
+"""
 import pytest
 
 from app.conversation import ConversationEngine

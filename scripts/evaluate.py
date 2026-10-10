@@ -1,4 +1,10 @@
-"""Run reproducible checks from the project root; preserve failures in the report."""
+"""Run reproducible project checks and retain machine-readable evidence.
+
+The script executes offline tests and lint by default, with an explicit opt-in
+for provider-backed tests. It records commands, return codes, environment
+metadata, and JUnit output so a reviewer can distinguish verified results from
+claims made in documentation.
+"""
 import argparse
 import json
 import os
@@ -9,6 +15,7 @@ import sys
 
 
 def main():
+    """Build a timestamped evaluation report without hiding failed commands."""
     parser = argparse.ArgumentParser()
     parser.add_argument('--live', action='store_true', help='Include the configured model; sends synthetic test messages')
     args = parser.parse_args()

@@ -1,4 +1,9 @@
-"""Unseen behavior checks, fixed before running the live model; no prompt tuning."""
+"""Predeclared unseen paraphrase, multi-intent, and reference evaluations.
+
+Cases are fixed before a live run to measure generalization rather than prompt
+tuning toward observed failures. Deterministic assertions still protect state
+and grounding when the configured model misunderstands a message.
+"""
 import pytest
 from app.conversation import ConversationEngine
 from test_live_semantics import make, SAMPLE

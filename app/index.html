@@ -1,3 +1,8 @@
+<!--
+  Dependency-free demonstration UI for the JSON API. The browser keeps only a
+  session identifier, renders phase/mode metadata returned by the server, and
+  never makes workflow or authorization decisions on the client.
+-->
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#101c36"><title>ClaimBot | Claims Support</title>
 <style>
@@ -9,6 +14,7 @@
 <div class="composerarea" id="composerArea"><form id="form" class="composer"><textarea id="text" aria-label="Your message" placeholder="Ask me about your claim…" rows="1" maxlength="4000" required></textarea><button class="send" id="send" type="submit" aria-label="Send message">➤</button></form><div class="composerfoot">ClaimBot can make mistakes. Check important details against your claim documents.</div></div></section></div>
 <div class="modaloverlay" id="confirm" role="dialog" aria-modal="true" aria-labelledby="confirmTitle"><div class="modal"><h2 id="confirmTitle">End this conversation?</h2><p id="confirmBody">This chat will close. You can start a new conversation at any time.</p><div class="modalactions"><button class="btn" id="cancel" type="button">Keep chatting</button><button class="btn primary" id="confirmAction" type="button">End conversation</button></div></div></div>
 <script>
+// UI state reflects server responses; it is presentation state, not SOP state.
 (()=>{'use strict';
 const $=s=>document.querySelector(s), chat=$('#chat'), input=$('#text');let sid=null,busy=false,ended=false,requestId=0,pendingAction='end';
 const greeting="Hi! I'm ClaimBot, your claims assistant. I'm here to help with any questions or concerns about your claims.\n\nTo keep your information safe, I'll first need to verify your identity. Please share any three: full name, date of birth, phone number, email address, or last four ID/SSN digits.\n\nWhat can I help you with today?";

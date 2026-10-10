@@ -1,7 +1,8 @@
-"""Diagnostic live checks: deterministic setup isolates post-verification behavior.
+"""Diagnostic live checks that isolate post-verification semantic behavior.
 
-These are NOT end-to-end model successes. The seed goes through the existing
-rules workflow, then every evaluated message uses the unchanged live provider.
+The seed intentionally uses deterministic setup before the unchanged live
+provider handles evaluated messages. These tests help locate interpretation
+failures, but their seeded setup is never reported as end-to-end model success.
 """
 import pytest
 

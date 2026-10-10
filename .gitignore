@@ -1,3 +1,4 @@
+# Local credentials, caches, generated evidence, and session databases.
 .env
 __pycache__/
 .pytest_cache/

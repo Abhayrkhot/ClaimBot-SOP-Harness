@@ -1,4 +1,9 @@
-"""Summarize captured live tests without conflating assertions with accuracy."""
+"""Summarize retained live-model evidence into separate quality dimensions.
+
+The report counts test outcomes, provider failures, response modes, and latency.
+It deliberately labels seeded diagnostics so their deterministic setup is not
+misreported as end-to-end model success.
+"""
 import argparse
 import json
 import statistics
@@ -7,6 +12,7 @@ from pathlib import Path
 
 
 def summarize(directory):
+    """Aggregate one capture directory and print a reviewer-readable report."""
     records = [json.loads(line) for line in (directory / 'transcripts.jsonl').read_text().splitlines()]
     calls = [call for record in records for call in record['calls']]
     turns = [turn for record in records for turn in record['turns']]

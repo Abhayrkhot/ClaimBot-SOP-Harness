@@ -1,3 +1,4 @@
+<!-- Defines what was verified, how it was measured, and the remaining limits. -->
 # Verification record
 
 Verified on 10 October 2026 against the source in this package.

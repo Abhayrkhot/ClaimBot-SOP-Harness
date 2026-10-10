@@ -1,3 +1,7 @@
+<!--
+  Primary setup, architecture, safety, operation, and verification guide for the
+  ClaimBot take-home project.
+-->
 # ClaimBot — Insurance Claims SOP Harness
 
 ClaimBot is a text-based insurance support demo that combines a language model's
@@ -174,34 +178,141 @@ email `margaret@email.com`. A policy number such as `POL-9921` does **not** coun
 as one of the three required PII fields. Fixture appeal deadlines are historical;
 answers about whether a deadline has passed use the current date.
 
-## Architecture and trust boundaries
+## Architecture and design rationale
 
-- **VERIFY_ID:** the model extracts schema-validated identity candidates from
-  the caller's current message. Source evidence and field formats are checked
-  locally. The model never receives the policyholder database. The repository
-  requires at least three matching fields for one customer before granting
-  access. Partial answers are accumulated; ambiguous inputs require clarification.
-- **RESOLVE_INTENT:** the semantic interpreter identifies claim hints and
-  questions. The repository resolves only claims belonging to the verified
-  customer. Missing or ambiguous references lead to clarification.
-- **PROCESS_CASE:** requested topics map to approved facts from the selected
-  claim and document guidance. Replies are assembled from those facts, with
-  concise greetings and empathy. Unknown information remains unknown.
-- **POST_PROCESS:** finishing claim discussion offers a summary to the registered
-  email address. Only a pending offer followed by explicit `send` queues it;
-  `skip` declines. The transaction stores the decision and demo outbox entry.
+The central design choice is to separate **understanding** from **authority**.
+Language models are useful for interpreting natural phrasing, corrections,
+references, emotion, and multi-part questions. They are not used as the source
+of truth for identity, ownership, workflow progression, protected records, or
+side effects. The model returns typed proposals; ordinary application code
+decides whether each proposal is valid in the current state.
 
-Model-enabled turns do not use the rules-mode keyword intent router. Provider
-adapters share a `complete(name, schema, prompt, context, timeout)` interface, so
-changing credentials/model configuration does not change the business workflow.
-Interpretation errors restore the prior business state and return safe recovery.
-`LLM_TURN_BUDGET_SECONDS` sets the shared model-call budget for a turn (45 seconds
-by default).
+```mermaid
+flowchart LR
+    UI[Browser UI] --> API[FastAPI boundary]
+    API --> SOP[ConversationService<br/>deterministic SOP]
+    SOP --> ENGINE[ConversationEngine<br/>semantic interpretation]
+    ENGINE --> PROVIDER[OpenAI-compatible,<br/>Anthropic, or Ollama]
+    SOP --> ID[Identity evidence<br/>validation]
+    SOP --> REPO[Repository<br/>ownership and fact allowlist]
+    REPO --> DATA[Synthetic JSON fixtures]
+    SOP --> STORE[SQLite session<br/>and demo outbox]
+    SOP --> API
+```
 
-Memory includes collected identity fields, claim hints, pending questions and
-topics, document availability, recent dialogue, and discussed facts. It is bounded
-session memory; it is not a guarantee that arbitrary information will be retained
-or correctly understood across every possible conversation.
+This structure keeps the safety-critical path inspectable. A provider can be
+changed without rewriting the workflow, and fixture storage can later be
+replaced by claims-system adapters without giving the model additional
+authority.
+
+### How one conversational turn is processed
+
+1. The API validates the message and session identifiers, then asks the store
+   for an atomic turn. SQLite serializes updates so concurrent requests cannot
+   overwrite state or queue the same summary twice.
+2. During `VERIFY_ID`, the model cites exact identity substrings from the current
+   message. Local validators check provenance, attribution, and field format.
+   The policyholder repository performs the actual three-of-five match.
+3. After verification, the model produces a schema-validated interpretation:
+   conversational scope, emotion, claim reference, questions, document updates,
+   requested topics, completion intent, and email intent. This result is an
+   untrusted proposal rather than an executable plan.
+4. `ConversationService` applies only safe memory updates, checks the current
+   phase, resolves claims within the verified customer's records, and maps
+   requested topics to approved fact IDs.
+5. The repository builds a small fact allowlist from the owned claim and
+   document guidance. Response templates use only those statements, which
+   prevents the model from inventing claim details or substituting one date for
+   another when a field is absent.
+6. The updated typed session is committed with the response. If interpretation
+   fails or times out, the pre-turn snapshot is restored and the caller receives
+   a recovery message explaining that nothing changed.
+
+### Conversational logic
+
+The semantic contract is intentionally broader than a keyword router. It asks
+the provider to interpret messy language, corrections, pronouns, ambiguity,
+emotion, refusals, and several questions in one message. Pydantic rejects extra
+or malformed fields before the workflow sees them. Model-enabled turns do not
+fall back to keyword intent guessing when interpretation fails, because guessing
+could turn an unrelated phrase into a protected action.
+
+The response layer keeps conversation natural without hiding uncertainty. It
+greets a newly verified caller by first name, acknowledges frustration or
+confusion, explains why verification is required, offers alternate identity
+fields, and answers only the topics requested. Broad requests receive a concise
+overview; specific requests receive only the corresponding grounded facts.
+Repeated unrelated questions lead to a human-support offer. Human transfer is
+recorded in the demo but is not connected to a contact-center system.
+
+Provider adapters share a
+`complete(name, schema, prompt, context, timeout)` interface. The turn budget is
+shared across all semantic calls, so one slow provider cannot silently extend a
+request indefinitely. `LLM_TURN_BUDGET_SECONDS` is 45 seconds by default.
+
+### State management across phases
+
+`Session` in `app/models.py` is the durable state-machine record. It stores the
+current phase, collected identity evidence, verified party, active claim,
+remembered claim hints, pending questions and topics, document availability,
+recent dialogue, discussed facts, off-topic count, consent status, and response
+mode. Keeping this information structured makes cross-phase memory explicit and
+testable; later turns do not depend on replaying an unbounded transcript.
+
+State transitions are forward-only:
+
+```text
+VERIFY_ID → RESOLVE_INTENT → PROCESS_CASE → POST_PROCESS → COMPLETE
+```
+
+- **VERIFY_ID:** partial identity is accumulated, but claim data remains locked.
+  The model never receives the policyholder database and cannot declare a match.
+- **RESOLVE_INTENT:** remembered hints are matched only against claims owned by
+  the verified party. Ambiguous matches produce a clarification request.
+- **PROCESS_CASE:** a caller may ask follow-ups, correct document availability,
+  or explicitly switch to another owned claim. Switching clears claim-specific
+  state before the new record is grounded.
+- **POST_PROCESS:** a pending summary offer must exist before `send` or `skip` is
+  accepted. A send decision queues one preview to the registered address inside
+  the same transaction, then completes the conversation.
+
+Memory is deliberately bounded. It covers information needed by this workflow,
+including identity fields, claim hints, pending questions, requested topics,
+document availability, recent dialogue, and discussed facts. It does not claim
+to remember arbitrary information across every possible conversation.
+
+### Grounded data processing
+
+The repository loads synthetic policyholders, claims, a claim schema, and
+required-document guidance from `fixtures/`. Identity values are normalized by
+field before matching, and at least three allowed PII fields must match one
+record. Policy numbers help locate records but do not count toward the required
+three PII fields.
+
+Claim selection always starts with the verified party ID, then applies case ID,
+type, status, month, and year hints. This ownership-first order prevents a valid
+claim identifier from disclosing another customer's record. For an authorized
+claim, the repository converts raw data into approved statements such as status,
+denial reason, missing documents, payment, deadlines, and submission guidance.
+Missing fields produce explicit unavailable-data statements instead of inferred
+answers.
+
+The JSON fixture files remain comment-free because JSON does not support
+comments. Their shapes and relationships are documented in
+[`fixtures/README.md`](fixtures/README.md). In a realistic deployment, the
+repository interface would call authenticated policyholder and claims services,
+the store would use a managed transactional database, and the simulated outbox
+would be replaced by an audited notification service. The same verification,
+ownership, grounding, transition, and consent checks would remain in application
+code.
+
+### Failure and recovery behavior
+
+Configured-provider failures are visible as `response_mode: fallback`. The
+workflow preserves its prior state and asks the customer to rephrase or request
+a representative. It does not silently route the message through rules-mode
+keywords. Rules mode is selected only at startup when no provider is configured
+and exists as a limited offline demonstration for labeled inputs.
 
 ## Requirement coverage and limits
 

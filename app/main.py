@@ -1,4 +1,10 @@
-"""HTTP surface: a JSON chat endpoint and the test UI."""
+"""FastAPI composition root and minimal HTTP boundary for ClaimBot.
+
+This module wires the model adapter, deterministic workflow, fixture repository,
+and SQLite store once at process startup. Endpoints validate transport inputs
+and delegate decisions to ``ConversationService``; they contain no claim-access
+or phase-transition logic.
+"""
 import hmac
 import os
 import uuid
@@ -25,6 +31,7 @@ class Message(BaseModel):
 
 @app.post('/api/chat')
 def chat(message: Message):
+    """Process one idempotent chat turn and return safe state metadata."""
     if not message.text.strip():
         raise HTTPException(422, 'Message cannot be blank')
     if message.session_id and not service.exists(message.session_id):
@@ -49,6 +56,7 @@ class EndRequest(BaseModel):
 
 @app.post('/api/end')
 def end_chat(message: EndRequest):
+    """Delete a session when the browser explicitly ends the conversation."""
     if not service.end_session(message.session_id):
         raise HTTPException(404, 'Session expired or not found')
     return {'ended': True}
@@ -56,12 +64,14 @@ def end_chat(message: EndRequest):
 
 @app.get('/api/health')
 def health():
+    """Expose runtime mode for container health and demo diagnostics."""
     return {'ok': True, 'mode': service.conversation.mode,
             'provider': type(service.conversation.provider).__name__ if service.conversation.provider else None}
 
 
 @app.get('/api/outbox')
 def outbox(authorization: str | None = Header(default=None)):
+    """Expose the simulated outbox only when an admin token is configured."""
     token = os.getenv('ADMIN_API_TOKEN')
     if not token:
         raise HTTPException(404, 'Not found')
@@ -73,4 +83,5 @@ def outbox(authorization: str | None = Header(default=None)):
 
 @app.get('/')
 def ui():
+    """Serve the dependency-free browser test interface."""
     return HTMLResponse((Path(__file__).parent / 'index.html').read_text())

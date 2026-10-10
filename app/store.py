@@ -1,4 +1,10 @@
-"""SQLite transactions serialize each turn, including the demo email side effect."""
+"""Transactional SQLite persistence for conversations and demo email previews.
+
+One process-level lock and ``BEGIN IMMEDIATE`` serialize state-changing turns,
+which prevents duplicate consent actions and lost updates in this compact demo.
+Sessions and outbox rows expire together; callers can read only their own queued
+preview through the chat response.
+"""
 import sqlite3
 import time
 from contextlib import contextmanager
@@ -8,6 +14,7 @@ from .models import Session
 
 
 class Store:
+    """Persist typed sessions and an idempotent, simulated email outbox."""
     def __init__(self, path=':memory:', ttl=1800):
         self.ttl = ttl
         self.lock = RLock()
@@ -18,6 +25,7 @@ class Store:
 
     @contextmanager
     def turn(self):
+        """Open one atomic workflow turn and roll it back on any exception."""
         with self.lock:
             self.db.execute('BEGIN IMMEDIATE')
             try:
@@ -39,6 +47,7 @@ class Store:
                         (sid, state.model_dump_json(), time.time() + self.ttl))
 
     def queue(self, sid, recipient, body):
+        """Queue at most one summary per session after workflow authorization."""
         self.db.execute('INSERT OR IGNORE INTO outbox VALUES (?, ?, ?, ?, ?)',
                         (sid, recipient, 'Insurance claim conversation summary', body, time.time() + self.ttl))
 

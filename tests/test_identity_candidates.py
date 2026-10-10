@@ -1,3 +1,9 @@
+"""Unit tests for evidence-bound identity extraction and normalization.
+
+These cases cover accepted formats plus adversarial attribution, correction,
+negation, and substring scenarios. They verify that model-proposed text cannot
+become trusted identity evidence unless local validation accepts it.
+"""
 import pytest
 
 from app.identity import IdentityExtraction, validated_candidates

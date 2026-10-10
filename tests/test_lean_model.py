@@ -1,3 +1,9 @@
+"""Contract tests for model-assisted turns using controlled provider outputs.
+
+The fake provider isolates orchestration behavior: structured interpretation is
+allowed to suggest meaning, while repository ownership, state transitions, and
+grounded responses remain deterministic.
+"""
 from app import workflow
 from app.conversation import ConversationEngine
 from test_lean_requirements import SAMPLE, service
