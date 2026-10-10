@@ -327,9 +327,8 @@ Missing fields produce explicit unavailable-data statements instead of inferred
 answers.
 
 The JSON fixture files remain comment-free because JSON does not support
-comments. Their shapes and relationships are documented in
-[`fixtures/README.md`](fixtures/README.md). In a realistic deployment, the
-repository interface would call authenticated policyholder and claims services,
+comments. In a realistic deployment, the repository interface would call
+authenticated policyholder and claims services,
 the store would use a managed transactional database, and the simulated outbox
 would be replaced by an audited notification service. The same verification,
 ownership, grounding, transition, and consent checks would remain in application
@@ -391,9 +390,9 @@ To retain transcripts and source hashes, add `-p scripts.live_capture` and set
 python scripts/summarize_live.py path/to/live-results
 ```
 
-Read **[VERIFICATION.md](VERIFICATION.md)** for the latest run and its exact scope.
-**[LIVE_EVALUATION.md](LIVE_EVALUATION.md)** provides live-model evidence. Earlier
-runs and source revisions must not be treated as current passing results.
+The packaged verification result is 71 offline tests passing, with 160 opt-in
+live cases deselected, plus a clean Ruff check. Live results are model-specific;
+earlier runs and source revisions must not be treated as current passing results.
 
 Interpret results separately: **semantic accuracy** asks whether the model chose
 the intended meaning; **SOP compliance** asks whether gates, ownership, grounding,
