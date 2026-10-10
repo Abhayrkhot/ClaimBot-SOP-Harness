@@ -5,7 +5,7 @@ Verified on 10 October 2026 against the source in this package.
 
 ## Submission gates
 
-- Offline regression suite: **69 passed**, with 160 opt-in live cases deselected.
+- Offline regression suite: **71 passed**, with 160 opt-in live cases deselected.
 - Static correctness checks: `python -m ruff check app tests scripts` passed.
 - The pre-tightening live identity matrix passed **32/32** cases. The final whole-message attribution change was then checked with **2/2 targeted live cases**: the exact assignment opening verified and resolved its remembered claim, while valid-looking PII followed by a third-party disclaimer remained protected. The complete 32-case matrix was not rerun after that last safety tightening.
 - Unchanged 84-paraphrase semantic corpus: **81/84 passed**. The three misses were filing-date questions: “What date did I submit it?”, “On what day did the claim arrive?”, and “What is the submission date?”. Each returned the grounded unknown-answer response; no protected data, ownership, consent, or phase gate was bypassed.
