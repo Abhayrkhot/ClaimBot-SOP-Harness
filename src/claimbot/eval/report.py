@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import gzip
 import json
 import math
 import statistics
@@ -58,10 +59,16 @@ def _pct(values: list[float], q: float) -> float:
     return ordered[idx]
 
 
+def read_text(path: str | Path) -> str:
+    """Run files are stored gzipped in the repository; both forms read the same."""
+    p = Path(path)
+    return gzip.decompress(p.read_bytes()).decode() if p.suffix == ".gz" else p.read_text()
+
+
 def load_lines(paths: Iterable[str | Path]) -> list[dict[str, Any]]:
     out = []
     for p in paths:
-        out += [json.loads(line) for line in Path(p).read_text().splitlines() if line.strip()]
+        out += [json.loads(line) for line in read_text(p).splitlines() if line.strip()]
     return out
 
 

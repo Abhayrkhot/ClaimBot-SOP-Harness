@@ -124,21 +124,28 @@ def main(argv: list[str] | None = None) -> None:
     elif args.cmd == "rejudge":
         from .claims.repository import Repository
         from .eval.judges import judge, protected_index
+        from .eval.report import load_lines
         from .eval.scenarios import Scenario
 
         repo = Repository.load(args.world)
         index = protected_index(repo)
         for path in args.paths:
-            with open(path) as f:
-                rows = [json.loads(line) for line in f if line.strip()]
+            rows = load_lines([path])
             changed = 0
             for row in rows:
                 if row["turns"]:
                     verdict = judge(Scenario(**row["scenario"]), repo, row["turns"], index)
                     changed += verdict != row["judge"]
                     row["judge"] = verdict
-            with open(path, "w") as f:
-                f.writelines(json.dumps(r) + "\n" for r in rows)
+            payload = "".join(json.dumps(r) + "\n" for r in rows)
+            if path.endswith(".gz"):
+                import gzip
+
+                with open(path, "wb") as fb:
+                    fb.write(gzip.compress(payload.encode(), 9))
+            else:
+                with open(path, "w") as f:
+                    f.write(payload)
             print(f"{path}: {len(rows)} conversations, {changed} verdicts changed")
     elif args.cmd == "report":
         from .eval.report import report

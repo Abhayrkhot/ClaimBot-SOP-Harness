@@ -52,11 +52,11 @@ def collect(
             continue
         if prefix_filter is None and d.name.startswith("v1-"):
             continue
-        for f in sorted(d.glob("*.jsonl")):
+        for f in sorted([*d.glob("*.jsonl"), *d.glob("*.jsonl.gz")]):
             rows = load_lines([f])
             for row in rows:
                 groups[(row["agent"], row["agent_model"])].append(row)
-            counted = f.with_suffix(".requests.json")
+            counted = d / (f.name.split(".jsonl")[0] + ".requests.json")
             if counted.exists() and rows:
                 key = (rows[0]["agent"], rows[0]["agent_model"])
                 measured[key][0] += json.loads(counted.read_text())["requests"]

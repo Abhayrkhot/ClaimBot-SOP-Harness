@@ -84,3 +84,15 @@ model name, so every harness turn failed interpretation and answered with the re
 violations, 0 task success). Jobs now derive their ports from the Slurm job id, and `start_vllm`
 checks that the port serves the expected model before the run starts. The final-code fuzz run
 (10,000 conversations) shows 0 invariant violations.
+
+## 2026-11-22: gpt-oss-120b baselines rerun (tool calls not parsed)
+
+When gpt-oss-120b is the agent it shares the simulator's vLLM server, which had been started without
+`--enable-auto-tool-choice --tool-call-parser openai`. Its tool calls were never parsed, so the
+prompt-only and guarded-tools baselines returned empty replies (0% task success, no violations).
+Those two runs were discarded and rerun with the flags; every baseline run now starts with a
+preflight request that must come back with a parsed tool call. The gpt-oss harness runs use
+structured output, not tool calls, and were unaffected.
+
+Run files pulled from the cluster carry the verdicts computed when they ran; every reported number
+comes from `claimbot rejudge` with the final judge after the last pull.
