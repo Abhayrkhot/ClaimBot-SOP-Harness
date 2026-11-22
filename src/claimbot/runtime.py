@@ -86,6 +86,6 @@ def build_runtime(
     if settings.response_mode == "llm" and llm is not None:
         from .claims.phrasing import LLMRenderer
 
-        renderer = LLMRenderer(llm)
+        renderer = LLMRenderer(llm, repo.documents)
     engine = Engine(domain, interpreter, renderer, store, clock, settings.llm_turn_budget_seconds)
     return Runtime(settings, engine, store, repo, domain, llm)
