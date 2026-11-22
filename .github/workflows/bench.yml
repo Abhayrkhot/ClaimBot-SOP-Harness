@@ -1,0 +1,64 @@
+name: bench
+
+# Runtime overhead benchmark on a standard GitHub runner: the API in rules mode (no model time),
+# one uvicorn worker on SQLite versus four workers on PostgreSQL. Results are uploaded as an
+# artifact and copied into results/bench/. Trigger: a pushed bench-* tag, or manually from main.
+on:
+  push:
+    tags: ["bench-*"]
+  workflow_dispatch:
+    inputs:
+      duration:
+        description: seconds per concurrency level
+        default: "20"
+
+permissions:
+  contents: read
+
+jobs:
+  bench:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: claimbot
+          POSTGRES_PASSWORD: claimbot
+          POSTGRES_DB: claimbot
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U claimbot" --health-interval 2s --health-timeout 3s --health-retries 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - run: uv sync --frozen --no-dev
+      - name: Runner
+        run: nproc && free -g && python3 --version
+      - name: SQLite, 1 worker
+        env:
+          SESSION_DB: /tmp/bench.sqlite3
+          RATE_LIMIT_PER_MINUTE: "0"
+          LOG_LEVEL: WARNING
+        run: |
+          uv run claimbot serve --port 8000 --workers 1 &
+          for i in $(seq 30); do curl -sf localhost:8000/healthz && break; sleep 1; done
+          uv run claimbot loadtest --url http://127.0.0.1:8000 --levels 1,8,32,64 \
+            --duration ${{ inputs.duration || '20' }} --label sqlite-1w --out bench/sqlite-1w.json
+          kill %1
+      - name: PostgreSQL, 4 workers
+        env:
+          DATABASE_URL: postgresql://claimbot:claimbot@localhost:5432/claimbot
+          RATE_LIMIT_PER_MINUTE: "0"
+          LOG_LEVEL: WARNING
+        run: |
+          uv run claimbot serve --port 8001 --workers 4 &
+          for i in $(seq 30); do curl -sf localhost:8001/healthz && break; sleep 1; done
+          uv run claimbot loadtest --url http://127.0.0.1:8001 --levels 1,8,32,64 \
+            --duration ${{ inputs.duration || '20' }} --label postgres-4w --out bench/postgres-4w.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bench
+          path: bench/

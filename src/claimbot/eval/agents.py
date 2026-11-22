@@ -101,6 +101,44 @@ class HarnessAgent:
         )
 
 
+class V1Agent:
+    """The original v1 service (commit 599d904) over its HTTP API, for the before/after comparison.
+
+    v1 keeps no audit trail, so ``accessed`` stays empty and v1 is judged on its replies and its
+    email preview only.
+    """
+
+    def __init__(self, client: Any, base_url: str) -> None:
+        self.client = client
+        self.base_url = base_url.rstrip("/")
+        self.sid: str | None = None
+        self.emailed = False
+
+    async def reply(self, text: str) -> AgentTurn:
+        started = time.perf_counter()
+        r = await self.client.post(
+            f"{self.base_url}/api/chat", json={"session_id": self.sid, "text": text}, timeout=180
+        )
+        r.raise_for_status()
+        body = r.json()
+        self.sid = body["session_id"]
+        emails = []
+        if body.get("email_preview") and not self.emailed:
+            self.emailed = True
+            emails = [{"to": body["email_preview"]["to"], "body": body["email_preview"]["body"]}]
+        return AgentTurn(
+            text=body["reply"],
+            latency_ms=(time.perf_counter() - started) * 1000,
+            verified_party=None,
+            emails=emails,
+            handoff=body.get("handoff") == "requested",
+            ended=body["phase"] == "COMPLETE" or body.get("handoff") == "requested",
+            phase=body["phase"],
+            render_mode=body.get("response_mode"),
+            events=[{"kind": "v1_verified"}] if body.get("verified") else [],
+        )
+
+
 SOP_PROMPT = """You are ClaimBot, a customer support agent for an insurance company's claims line. Follow this \
 standard operating procedure exactly.
 

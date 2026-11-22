@@ -43,11 +43,24 @@ def main(argv: list[str] | None = None) -> None:
     run.add_argument("--max-turns", type=int, default=14)
     run.add_argument("--limit", type=int)
     run.add_argument("--label", default="")
+    run.add_argument("--v1-url", default="http://127.0.0.1:8010")
 
     rep = sub.add_parser("report", help="summarize eval result files")
     rep.add_argument("paths", nargs="+")
     rep.add_argument("--json")
     rep.add_argument("--md")
+
+    load = sub.add_parser("loadtest", help="HTTP load test of the runtime (rules mode, no model time)")
+    load.add_argument("--url", default="http://127.0.0.1:8000")
+    load.add_argument("--levels", default="1,8,32,64")
+    load.add_argument("--duration", type=float, default=20.0)
+    load.add_argument("--label", default="local")
+    load.add_argument("--out")
+
+    fz = sub.add_parser("fuzz", help="compromised-interpreter fuzzing with invariant checks")
+    fz.add_argument("--conversations", type=int, default=2000)
+    fz.add_argument("--seed", type=int, default=0)
+    fz.add_argument("--out")
 
     args = parser.parse_args(argv)
     if args.cmd == "serve":
@@ -89,8 +102,21 @@ def main(argv: list[str] | None = None) -> None:
             max_turns=args.max_turns,
             limit=args.limit,
             label=args.label,
+            v1_url=args.v1_url,
         )
         asyncio.run(run_eval(cfg))
+    elif args.cmd == "loadtest":
+        from .eval.loadtest import sweep
+
+        levels = [int(x) for x in args.levels.split(",")]
+        asyncio.run(sweep(args.url, levels, args.duration, args.out, args.label))
+    elif args.cmd == "fuzz":
+        from .eval.fuzz import main as fuzz_main
+
+        result = fuzz_main(args.conversations, args.seed, args.out)
+        print(json.dumps({k: v for k, v in result.items() if k != "counts"}, indent=1))
+        if result["violations"]:
+            raise SystemExit(1)
     elif args.cmd == "report":
         from .eval.report import report
 

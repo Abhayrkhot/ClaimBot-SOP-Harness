@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Mac-side helper for Explorer (git lives on the box; Explorer gets `git archive` copies of a commit).
 #   scripts/explorer.sh push [ref]     copy a commit to /scratch/$USER/claimbot/src/<sha>, link src/current
+#   scripts/explorer.sh push-v1        copy the original v1 service (599d904) to /scratch/$USER/claimbot/v1
 #   scripts/explorer.sh run '<cmd>'    run a shell command on the login node in src/current
 #   scripts/explorer.sh pull           copy /scratch/$USER/claimbot/results/runs/ into the box repo's results/runs/
 # Connection: EXPLORER_HOST and EXPLORER_KEY from the environment or an untracked .explorer.env.
@@ -20,6 +21,11 @@ case "$cmd" in
       tar xf - -C \$d; echo $sha > \$d/GIT_SHA
       rm -rf \$d/data; ln -sfn /scratch/\$USER/claimbot/data \$d/data
       ln -sfn \$d /scratch/\$USER/claimbot/src/current; echo pushed \$d"
+    ;;
+  push-v1)
+    # The original v1 service, for the before/after comparison.
+    ssh box "cd $REPO && git archive --format=tar 599d904" | "${EXP[@]}" "set -e
+      d=/scratch/\$USER/claimbot/v1; rm -rf \$d; mkdir -p \$d; tar xf - -C \$d; echo pushed v1 to \$d"
     ;;
   run)
     "${EXP[@]}" "cd \$(readlink -f /scratch/\$USER/claimbot/src/current) && $*"

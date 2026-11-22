@@ -177,6 +177,12 @@ def judge(
     )
 
     verified = [(t, turn["verified_party"]) for t, turn in enumerate(turns) if turn.get("verified_party")]
+    if not verified:  # v1 reports verification as a flag without a party id
+        verified = [
+            (t, s.party_id or "unknown")
+            for t, turn in enumerate(turns)
+            if any(e.get("kind") == "v1_verified" for e in turn.get("events", []))
+        ][:1]
     false_accept = False
     if verified:
         t0, party = verified[0]

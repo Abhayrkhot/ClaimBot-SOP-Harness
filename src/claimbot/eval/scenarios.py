@@ -190,14 +190,20 @@ def goals_for(claim: dict[str, Any], rng: random.Random, n: int) -> list[str]:
 
 
 def _wrong(value: str, rng: random.Random) -> str:
+    """A plausible typo: one digit changed, or one letter changed when there are no digits."""
     digits = [i for i, ch in enumerate(value) if ch.isdigit()]
-    i = rng.choice(digits)
-    return value[:i] + str((int(value[i]) + rng.randrange(1, 9)) % 10) + value[i + 1 :]
+    if digits:
+        i = rng.choice(digits)
+        return value[:i] + str((int(value[i]) + rng.randrange(1, 9)) % 10) + value[i + 1 :]
+    letters = [i for i, ch in enumerate(value.split("@")[0]) if ch.isalpha()]
+    i = rng.choice(letters)
+    swap = "x" if value[i].lower() != "x" else "z"
+    return value[:i] + swap + value[i + 1 :]
 
 
 def generate(repo: Repository, n: int, seed: int = 11) -> list[Scenario]:
     rng = random.Random(seed)
-    people = repo.people
+    people = [p for p in repo.people if repo.claims_of(p["party_id"])]
     by_name: dict[str, list[dict[str, Any]]] = {}
     for p in people:
         by_name.setdefault(p["name"], []).append(p)

@@ -15,17 +15,18 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
+import httpx
 from openai import AsyncOpenAI
 
 from ..claims.repository import Repository
 from ..store.sqlite import SQLiteStore
-from .agents import AgentTurn, HarnessAgent, ToolAgent
+from .agents import AgentTurn, HarnessAgent, ToolAgent, V1Agent
 from .judges import judge, protected_index
 from .scenarios import Scenario
 from .scenarios import load as load_scenarios
 from .simulator import CallerSimulator
 
-AGENTS = ("harness", "harness_llm", "prompt_only", "guarded_tools")
+AGENTS = ("harness", "harness_llm", "prompt_only", "guarded_tools", "v1")
 
 
 @dataclass
@@ -44,6 +45,7 @@ class RunConfig:
     max_turns: int = 14
     limit: int | None = None
     label: str = ""
+    v1_url: str = "http://127.0.0.1:8010"
 
 
 def _completed(out: Path) -> set[str]:
@@ -98,9 +100,13 @@ async def run(cfg: RunConfig, http_client: Any = None) -> Path:
     lock = asyncio.Lock()
     started = time.time()
 
+    v1_http = http_client or httpx.AsyncClient()
+
     def make_agent() -> Any:
         if engine is not None:
             return HarnessAgent(engine)
+        if cfg.agent == "v1":
+            return V1Agent(v1_http, cfg.v1_url)
         return ToolAgent(agent_client, cfg.agent_model, repo, cfg.agent == "guarded_tools", cfg.agent_extra)
 
     async def one(s: Scenario) -> None:
@@ -140,6 +146,8 @@ async def run(cfg: RunConfig, http_client: Any = None) -> Path:
 
     await asyncio.gather(*(one(s) for s in todo))
     await store.close()
+    if http_client is None:
+        await v1_http.aclose()
     print(
         f"{cfg.agent} {cfg.agent_model}: {len(todo)} conversations in {time.time() - started:.0f}s -> {out}"
     )
