@@ -171,7 +171,7 @@ The API in rules mode (no model time) on a standard GitHub-hosted runner, driven
 
 | Conversations | Turns | Verified conversations | Facts disclosed | Emails queued | Invariant violations |
 |---|---|---|---|---|---|
-| 10,000 | 69,316 | 5,131 | 67,980 | 495 | 0 |
+| 10,000 | 69,316 | 5,131 | 68,408 | 403 | 0 |
 <!-- results:tables:end -->
 
 ## Running it
