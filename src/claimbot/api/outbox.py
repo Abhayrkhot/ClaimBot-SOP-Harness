@@ -22,12 +22,18 @@ class OutboxDispatcher:
     def __init__(self, store: Any, settings: Settings) -> None:
         self.store = store
         self.settings = settings
+        self.last_batch = 0
+
+    BATCH = 50
 
     async def deliver_once(self) -> int:
+        """Deliver one batch. Returns how many messages were attempted (sent or failed)."""
         import aiosmtplib
 
         sent = 0
-        for message in await self.store.outbox_pending():
+        batch = await self.store.outbox_pending(self.BATCH)
+        self.last_batch = len(batch)
+        for message in batch:
             email = EmailMessage()
             email["From"] = self.settings.smtp_sender
             email["To"] = message.recipient
@@ -50,9 +56,12 @@ class OutboxDispatcher:
         return sent
 
     async def run(self) -> None:
+        """Poll for committed summaries; keep draining without sleeping while batches come back full."""
         while True:
+            self.last_batch = 0
             try:
                 await self.deliver_once()
             except Exception:
                 LOG.exception("outbox loop error")
-            await asyncio.sleep(self.settings.outbox_poll_seconds)
+            if self.last_batch < self.BATCH:
+                await asyncio.sleep(self.settings.outbox_poll_seconds)
