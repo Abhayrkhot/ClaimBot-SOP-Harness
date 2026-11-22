@@ -25,20 +25,20 @@ case "$model" in
   *) AGENT_EXTRA='{}' ;;
 esac
 TOOL_PARSER=hermes; [[ "$model" == openai/gpt-oss* ]] && TOOL_PARSER=openai
-start_vllm "$SIM" 8002 "${CB_SIM_UTIL:-0.54}" --max-model-len 16384 --max-num-seqs 128
+start_vllm "$SIM" "$SIM_PORT" "${CB_SIM_UTIL:-0.54}" --max-model-len 16384 --max-num-seqs 128
 if [ "$model" != "$SIM" ]; then
-  start_vllm "$model" 8001 "${CB_AGENT_UTIL:-0.36}" --max-model-len 16384 --max-num-seqs 128 \
+  start_vllm "$model" "$AGENT_PORT" "${CB_AGENT_UTIL:-0.36}" --max-model-len 16384 --max-num-seqs 128 \
     --enable-auto-tool-choice --tool-call-parser "$TOOL_PARSER"
-  AGENT_URL=http://127.0.0.1:8001/v1
+  AGENT_URL=http://127.0.0.1:$AGENT_PORT/v1
 else
-  AGENT_URL=http://127.0.0.1:8002/v1
+  AGENT_URL=http://127.0.0.1:$SIM_PORT/v1
 fi
 out=$CB_ROOT/results/runs/$tag
 mkdir -p "$out"
 for agent in "$@"; do
   cb eval --agent "$agent" --world evalsets/world --scenarios "${CB_SCENARIOS:-evalsets/scenarios.jsonl}" \
     --out "$out/$agent.jsonl" --agent-url "$AGENT_URL" --agent-model "$model" --agent-extra "$AGENT_EXTRA" \
-    --sim-url http://127.0.0.1:8002/v1 --sim-model "$SIM" --sim-extra '{"reasoning_effort": "low"}' \
+    --sim-url http://127.0.0.1:$SIM_PORT/v1 --sim-model "$SIM" --sim-extra '{"reasoning_effort": "low"}' \
     --concurrency "${CB_CONCURRENCY:-48}" ${CB_LIMIT:+--limit "$CB_LIMIT"} --label "$tag"
 done
 cb report "$out"/*.jsonl --json "$out/summary.json" --md "$out/summary.md"

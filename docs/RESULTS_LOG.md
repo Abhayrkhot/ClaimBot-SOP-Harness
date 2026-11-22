@@ -74,3 +74,13 @@ Decline cues ("skip", "no need", "don't") count as declining, and a model that r
 decline cue is present gets a confirmation question instead. All three messages are regression
 tests. The run was cancelled and its partial output set aside; handoff scenarios no longer require
 verification to count as successful.
+
+## 2026-11-22: third full run stopped (two jobs on one node shared ports)
+
+Two eval jobs were scheduled onto the same 8-GPU node and both started vLLM on fixed ports
+8001/8002. Simulator traffic still worked (both jobs serve gpt-oss-120b on 8002), but the
+Qwen2.5-7B job's agent requests reached the other job's Qwen3-30B server and got a 404 for the
+model name, so every harness turn failed interpretation and answered with the recovery message (0
+violations, 0 task success). Jobs now derive their ports from the Slurm job id, and `start_vllm`
+checks that the port serves the expected model before the run starts. The final-code fuzz run
+(10,000 conversations) shows 0 invariant violations.
