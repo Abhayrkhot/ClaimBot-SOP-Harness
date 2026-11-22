@@ -36,6 +36,8 @@ jobs:
           uv run ruff format --check .
       - name: Type check
         run: uv run mypy
+      - name: README results match results/
+        run: uv run python scripts/gen_readme.py --check
       - name: Tests (SQLite and PostgreSQL), coverage gate
         run: uv run pytest --cov --cov-report=term --cov-fail-under=90
       - name: Adversarial property tests (extended)

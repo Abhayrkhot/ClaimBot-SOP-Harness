@@ -1,0 +1,57 @@
+{
+  "label": "sqlite-1w",
+  "rows": [
+    {
+      "label": "sqlite-1w",
+      "concurrency": 1,
+      "duration_s": 20.0,
+      "turns": 5514,
+      "conversations": 1057,
+      "errors": 0,
+      "conflicts": 0,
+      "turns_per_s": 275.7,
+      "p50_ms": 2.9155410000001325,
+      "p95_ms": 4.457117000001176,
+      "p99_ms": 21.119326000004435
+    },
+    {
+      "label": "sqlite-1w",
+      "concurrency": 8,
+      "duration_s": 20.0,
+      "turns": 6969,
+      "conversations": 1330,
+      "errors": 0,
+      "conflicts": 0,
+      "turns_per_s": 348.45,
+      "p50_ms": 19.503150999995,
+      "p95_ms": 38.28182399999491,
+      "p99_ms": 94.5385260000009
+    },
+    {
+      "label": "sqlite-1w",
+      "concurrency": 32,
+      "duration_s": 20.0,
+      "turns": 8131,
+      "conversations": 1546,
+      "errors": 0,
+      "conflicts": 0,
+      "turns_per_s": 406.55,
+      "p50_ms": 77.36454700000195,
+      "p95_ms": 117.80840299999795,
+      "p99_ms": 130.04530099999556
+    },
+    {
+      "label": "sqlite-1w",
+      "concurrency": 64,
+      "duration_s": 20.0,
+      "turns": 5084,
+      "conversations": 959,
+      "errors": 0,
+      "conflicts": 0,
+      "turns_per_s": 254.2,
+      "p50_ms": 165.86083299999643,
+      "p95_ms": 701.5328890000063,
+      "p99_ms": 1212.1765379999943
+    }
+  ]
+}

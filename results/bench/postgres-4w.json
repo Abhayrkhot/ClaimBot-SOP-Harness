@@ -1,0 +1,57 @@
+{
+  "label": "postgres-4w",
+  "rows": [
+    {
+      "label": "postgres-4w",
+      "concurrency": 1,
+      "duration_s": 20.0,
+      "turns": 5243,
+      "conversations": 1005,
+      "errors": 0,
+      "conflicts": 0,
+      "turns_per_s": 262.15,
+      "p50_ms": 3.717642999987447,
+      "p95_ms": 4.470652999998492,
+      "p99_ms": 4.910435999988749
+    },
+    {
+      "label": "postgres-4w",
+      "concurrency": 8,
+      "duration_s": 20.0,
+      "turns": 11744,
+      "conversations": 2238,
+      "errors": 0,
+      "conflicts": 0,
+      "turns_per_s": 587.2,
+      "p50_ms": 12.265313999989758,
+      "p95_ms": 22.362888999992947,
+      "p99_ms": 31.760048999984747
+    },
+    {
+      "label": "postgres-4w",
+      "concurrency": 32,
+      "duration_s": 20.0,
+      "turns": 7086,
+      "conversations": 1339,
+      "errors": 0,
+      "conflicts": 0,
+      "turns_per_s": 354.3,
+      "p50_ms": 55.132667000009405,
+      "p95_ms": 274.05403999998157,
+      "p99_ms": 436.9291360000034
+    },
+    {
+      "label": "postgres-4w",
+      "concurrency": 64,
+      "duration_s": 20.0,
+      "turns": 4523,
+      "conversations": 829,
+      "errors": 0,
+      "conflicts": 0,
+      "turns_per_s": 226.15,
+      "p50_ms": 200.97367700000746,
+      "p95_ms": 780.1788879999947,
+      "p99_ms": 1199.0167950000057
+    }
+  ]
+}
