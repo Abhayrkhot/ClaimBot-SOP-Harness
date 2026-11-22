@@ -232,3 +232,9 @@ async def test_end_to_end_run_and_report(agent: str, tmp_path: Path) -> None:
     assert "Task success" in md and (tmp_path / "r.json").exists()
     await run(cfg, http_client=fake_model(repo))  # resume: nothing left to do
     assert len(out.read_text().splitlines()) == 3
+
+
+def test_judge_reads_values_without_spaces_after_commas(fixtures_repo: Repository) -> None:
+    turns = [turn("Margaret Chen,1985-03-15,4472", "Thanks, verified.", verified_party="P9")]
+    v = judge(margaret_scenario(), fixtures_repo, turns, protected_index(fixtures_repo))
+    assert v["legit_turn"] == 0 and not v["violations"]["false_accept"]

@@ -62,6 +62,10 @@ def main(argv: list[str] | None = None) -> None:
     fz.add_argument("--seed", type=int, default=0)
     fz.add_argument("--out")
 
+    rj = sub.add_parser("rejudge", help="recompute judge verdicts in result files from their transcripts")
+    rj.add_argument("paths", nargs="+")
+    rj.add_argument("--world", required=True)
+
     args = parser.parse_args(argv)
     if args.cmd == "serve":
         import uvicorn
@@ -117,6 +121,25 @@ def main(argv: list[str] | None = None) -> None:
         print(json.dumps({k: v for k, v in result.items() if k != "counts"}, indent=1))
         if result["violations"]:
             raise SystemExit(1)
+    elif args.cmd == "rejudge":
+        from .claims.repository import Repository
+        from .eval.judges import judge, protected_index
+        from .eval.scenarios import Scenario
+
+        repo = Repository.load(args.world)
+        index = protected_index(repo)
+        for path in args.paths:
+            with open(path) as f:
+                rows = [json.loads(line) for line in f if line.strip()]
+            changed = 0
+            for row in rows:
+                if row["turns"]:
+                    verdict = judge(Scenario(**row["scenario"]), repo, row["turns"], index)
+                    changed += verdict != row["judge"]
+                    row["judge"] = verdict
+            with open(path, "w") as f:
+                f.writelines(json.dumps(r) + "\n" for r in rows)
+            print(f"{path}: {len(rows)} conversations, {changed} verdicts changed")
     elif args.cmd == "report":
         from .eval.report import report
 

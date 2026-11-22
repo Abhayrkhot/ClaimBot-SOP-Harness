@@ -63,9 +63,11 @@ def _identity_values(person: dict[str, Any]) -> dict[str, set[str]]:
 
 
 def _supplied(texts: list[str]) -> dict[str, set[str]]:
+    """Every verification value the caller typed, however it was separated ("Jane Doe,03/15/1985")."""
     seen: dict[str, set[str]] = {f: set() for f in FIELDS}
     for t in texts:
-        for f, spans in candidate_spans(t, max_chars=4000).items():
+        spaced = re.sub(r"\s*([,;|])\s*", r"\1 ", t)
+        for f, spans in candidate_spans(spaced, max_chars=4000).items():
             if f in seen:
                 seen[f].update(v for s in spans if (v := normalize(f, s)))
     return seen
