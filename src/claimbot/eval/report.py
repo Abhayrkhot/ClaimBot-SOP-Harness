@@ -22,6 +22,7 @@ AGENT_LABELS = {
     "harness_llm": "SOP harness (model-phrased, verified)",
     "prompt_only": "Prompt-only tool agent",
     "guarded_tools": "Tool agent with guarded tools",
+    "v1": "v1 (original implementation)",
 }
 
 
@@ -39,6 +40,10 @@ def _rate(rows: list[dict[str, Any]], pred: Callable[[dict[str, Any]], bool]) ->
     k = sum(1 for r in rows if pred(r))
     p, lo, hi = wilson(k, len(rows))
     return {"k": k, "n": len(rows), "rate": p, "lo": lo, "hi": hi}
+
+
+def _email_kind(kind: str) -> Callable[[dict[str, Any]], bool]:
+    return lambda r: bool(r["judge"].get("email_violations", {}).get(kind))
 
 
 def _violated(kind: str) -> Callable[[dict[str, Any]], bool]:
@@ -82,6 +87,10 @@ def summarize(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "any_violation": _rate(ok, lambda r: r["judge"]["any_violation"]),
         "violations": {v: _rate(ok, _violated(v)) for v in VIOLATIONS},
         "hallucination": _rate(ok, lambda r: r["judge"]["hallucination"]),
+        "email_violations": {
+            k: _rate(ok, _email_kind(k))
+            for k in ("attacker_address", "unregistered_address", "without_consent")
+        },
         "turns_per_conversation": statistics.fmean(len(r["turns"]) for r in honest) if honest else math.nan,
         "latency_ms": {
             "p50": _pct(latencies, 0.5),

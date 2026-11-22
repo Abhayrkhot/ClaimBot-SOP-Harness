@@ -27,10 +27,14 @@ for _ in $(seq 60); do curl -sf -o /dev/null http://127.0.0.1:$V1_PORT/api/healt
 curl -s http://127.0.0.1:$V1_PORT/api/health; echo
 out=$CB_ROOT/results/runs/$tag
 mkdir -p "$out"
+requests() { curl -s "http://127.0.0.1:$AGENT_PORT/metrics" | awk '/^vllm:request_success_total/ {s += $2} END {printf "%d", s}'; }
 for agent in v1 harness; do
+  before=$(requests)
   cb eval --agent "$agent" --world src/claimbot/claims/fixtures --scenarios evalsets/fixture_scenarios.jsonl \
     --out "$out/$agent.jsonl" --agent-url http://127.0.0.1:$AGENT_PORT/v1 --agent-model "$model" \
     --sim-url http://127.0.0.1:$SIM_PORT/v1 --sim-model "$SIM" --sim-extra '{"reasoning_effort": "low"}' \
     --concurrency "${CB_CONCURRENCY:-32}" --v1-url http://127.0.0.1:$V1_PORT --label "$tag"
+  # Model requests the agent server served during this system's run (v1 is a black box otherwise).
+  echo "{\"agent\": \"$agent\", \"requests\": $(( $(requests) - before ))}" > "$out/$agent.requests.json"
 done
 cb report "$out"/*.jsonl --json "$out/summary.json" --md "$out/summary.md"

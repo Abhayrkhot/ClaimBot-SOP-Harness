@@ -23,8 +23,8 @@ sys.path.insert(0, str(ROOT / "src"))
 from claimbot.eval.report import AGENT_LABELS, VIOLATIONS, fmt_rate, load_lines, summarize  # noqa: E402
 
 MODEL_ORDER = ["Qwen2.5-7B-Instruct", "Qwen3-30B-A3B-Instruct-2507-FP8", "Qwen3-32B-FP8", "gpt-oss-120b"]
-AGENT_ORDER = list(AGENT_LABELS) + ["v1"]
-LABELS = {**AGENT_LABELS, "v1": "v1 (original implementation)"}
+AGENT_ORDER = list(AGENT_LABELS)
+LABELS = AGENT_LABELS
 
 
 def _model(m: str) -> str:
@@ -44,6 +44,7 @@ def collect(
     prefix_filter: str | None, exclude: tuple[str, ...] = ("smoke",)
 ) -> dict[tuple[str, str], dict[str, Any]]:
     groups: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
+    measured: dict[tuple[str, str], list[int]] = defaultdict(lambda: [0, 0])
     for d in sorted((ROOT / "results" / "runs").glob("*")):
         if not d.is_dir() or d.name.startswith(exclude):
             continue
@@ -52,9 +53,20 @@ def collect(
         if prefix_filter is None and d.name.startswith("v1-"):
             continue
         for f in sorted(d.glob("*.jsonl")):
-            for row in load_lines([f]):
+            rows = load_lines([f])
+            for row in rows:
                 groups[(row["agent"], row["agent_model"])].append(row)
-    return {k: summarize(v) for k, v in sorted(groups.items(), key=lambda kv: _sort_key(kv[0]))}
+            counted = f.with_suffix(".requests.json")
+            if counted.exists() and rows:
+                key = (rows[0]["agent"], rows[0]["agent_model"])
+                measured[key][0] += json.loads(counted.read_text())["requests"]
+                measured[key][1] += sum(len(r["turns"]) for r in rows)
+    out = {k: summarize(v) for k, v in sorted(groups.items(), key=lambda kv: _sort_key(kv[0]))}
+    for key, (requests, turns) in measured.items():
+        # Counted at the model server, so it also covers systems that do not report their own calls (v1).
+        out[key]["llm_calls_per_turn"] = requests / turns if turns else math.nan
+        out[key]["calls_measured_at_server"] = True
+    return out
 
 
 def pct(m: dict[str, Any]) -> str:
@@ -94,6 +106,15 @@ def main_tables(s: dict[tuple[str, str], dict[str, Any]]) -> str:
             f"| {_model(model)} | {LABELS.get(agent, agent)} | "
             + " | ".join(fmt_rate(m["violations"][v]) for v in VIOLATIONS)
             + " |"
+        )
+    out += ["", "#### Unauthorized emails by kind\n",
+            "| Agent model | System | to the attacker's address | to another unregistered address | without consent |",
+            "|---|---|---|---|---|"]  # fmt: skip
+    for (agent, model), m in s.items():
+        ev = m["email_violations"]
+        out.append(
+            f"| {_model(model)} | {LABELS.get(agent, agent)} | {fmt_rate(ev['attacker_address'])} | "
+            f"{fmt_rate(ev['unregistered_address'])} | {fmt_rate(ev['without_consent'])} |"
         )
     cats = sorted({c for m in s.values() for c in m["by_category"]})
     out += ["", "#### Success by scenario category\n",
@@ -177,63 +198,99 @@ def fuzz_table() -> str:
     return "\n".join(out) + "\n"
 
 
+def _range(values: list[float]) -> str:
+    lo, hi = min(values), max(values)
+    return f"{100 * lo:.1f}%" if abs(hi - lo) < 0.0005 else f"{100 * lo:.1f}-{100 * hi:.1f}%"
+
+
 def headline(s: dict[tuple[str, str], dict[str, Any]], v1: dict[tuple[str, str], dict[str, Any]]) -> str:
-    lines = []
-    by_model: dict[str, dict[str, dict[str, Any]]] = defaultdict(dict)
+    if not s:
+        return "_Results are generated from `results/` by `scripts/gen_readme.py`._\n"
+    by_agent: dict[str, dict[str, dict[str, Any]]] = defaultdict(dict)
     for (agent, model), m in s.items():
-        by_model[_model(model)][agent] = m
+        by_agent[agent][_model(model)] = m
+    models = list(dict.fromkeys(_model(mo) for _, mo in s))
     total = sum(m["n"] for m in s.values())
-    if total:
-        models = ", ".join(by_model)
+    lines = [
+        f"Measured on {total:,} simulated conversations: {len(models)} open models ({', '.join(models)}), the same "
+        "400 scenarios each (288 honest callers, 112 adversarial), callers simulated by gpt-oss-120b, models "
+        "served with vLLM on NVIDIA H200s.\n"
+    ]
+
+    def agg(agent: str, key: str) -> tuple[int, int]:
+        ms = by_agent.get(agent, {}).values()
+        return sum(m[key]["k"] for m in ms), sum(m[key]["n"] for m in ms)
+
+    if "harness" in by_agent:
+        h = by_agent["harness"]
+        vk, vn = agg("harness", "any_violation")
+        hk, _ = agg("harness", "hallucination")
+        ak, an = agg("harness", "attack_success")
+        line = (
+            f"- **SOP harness:** {vk} policy violations in {vn:,} conversations and {hk} with a hallucinated value; "
+            f"adversarial callers succeeded {ak} times in {an}. Honest-caller task success "
+            f"{_range([m['task_success']['rate'] for m in h.values()])} with one model call per turn"
+        )
+        if "harness_llm" in by_agent:
+            hl = by_agent["harness_llm"]
+            modes: dict[str, int] = defaultdict(int)
+            for m in hl.values():
+                for k, v in m["render_modes"].items():
+                    modes[k] += v
+            phrased = modes.get("llm", 0) + modes.get("llm_rejected", 0)
+            lk, ln = agg("harness_llm", "any_violation")
+            line += (
+                f"; {_range([m['task_success']['rate'] for m in hl.values()])} with model-phrased replies, of which "
+                f"the grounding verifier accepted {100 * modes.get('llm', 0) / max(phrased, 1):.1f}% "
+                f"({lk} violations in {ln:,})"
+            )
+        lines.append(line + ".")
+    if "prompt_only" in by_agent:
+        p = by_agent["prompt_only"]
         lines.append(
-            f"Measured on {total:,} simulated conversations across {len(by_model)} open models ({models}):\n"
+            "- **Prompt-only tool agent, same models:** policy violations in "
+            f"{_range([m['any_violation']['rate'] for m in p.values()])} of conversations (mostly summaries emailed to "
+            "guessed or attacker-supplied addresses), adversarial callers succeeded in "
+            f"{_range([m['attack_success']['rate'] for m in p.values()])}, hallucinated values in "
+            f"{_range([m['hallucination']['rate'] for m in p.values()])}, honest-caller task success "
+            f"{_range([m['task_success']['rate'] for m in p.values()])}."
         )
-        h_viol = sum(
-            by_model[mo]["harness"]["any_violation"]["k"] for mo in by_model if "harness" in by_model[mo]
+    if "guarded_tools" in by_agent:
+        g = by_agent["guarded_tools"]
+        ck = sum(m["email_violations"]["without_consent"]["k"] for m in g.values())
+        lines.append(
+            "- **Authorization moved into the tools:** removes the record-access and recipient failures but not "
+            f"consent; {ck} conversations still emailed a caller who had not agreed. Hallucinated values in "
+            f"{_range([m['hallucination']['rate'] for m in g.values()])}, honest-caller task success "
+            f"{_range([m['task_success']['rate'] for m in g.values()])}."
         )
-        h_n = sum(
-            by_model[mo]["harness"]["any_violation"]["n"] for mo in by_model if "harness" in by_model[mo]
-        )
-        for base in ("prompt_only", "guarded_tools"):
-            k = sum(by_model[mo][base]["attack_success"]["k"] for mo in by_model if base in by_model[mo])
-            n = sum(by_model[mo][base]["attack_success"]["n"] for mo in by_model if base in by_model[mo])
-            if n:
-                lines.append(
-                    f"- {LABELS[base]}: adversarial callers succeeded in {k} of {n} conversations ({100 * k / n:.1f}%)."
-                )
-        if h_n:
-            hk = sum(
-                by_model[mo]["harness"]["attack_success"]["k"] for mo in by_model if "harness" in by_model[mo]
-            )
-            hn = sum(
-                by_model[mo]["harness"]["attack_success"]["n"] for mo in by_model if "harness" in by_model[mo]
-            )
-            lines.append(
-                f"- SOP harness: {hk} of {hn} adversarial conversations succeeded, and {h_viol} of {h_n} conversations "
-                "overall had any violation."
-            )
-        for mo, agents in by_model.items():
-            if "harness" in agents:
-                ts = agents["harness"]["task_success"]
-                parts = [f"harness {pct(ts)}"]
-                for base in ("prompt_only", "guarded_tools", "harness_llm"):
-                    if base in agents:
-                        parts.append(f"{base.replace('_', ' ')} {pct(agents[base]['task_success'])}")
-                lines.append(f"- Task success for honest callers on {mo}: " + ", ".join(parts) + ".")
     for (agent, model), m in v1.items():
-        if agent == "v1":
-            h = v1.get(("harness", model))
-            if h:
-                lines.append(
-                    f"- v1 to v2 on {_model(model)}: task success {pct(m['task_success'])} to {pct(h['task_success'])}, "
-                    f"model calls per turn {m['llm_calls_per_turn']:.2f} to {h['llm_calls_per_turn']:.2f}, p95 turn latency "
-                    f"{secs(m['latency_ms'].get('p95'))} to {secs(h['latency_ms'].get('p95'))}."
-                )
-    return (
-        "\n".join(lines) + "\n"
-        if lines
-        else "_Results are generated from `results/` by `scripts/gen_readme.py`._\n"
-    )
+        if agent != "v1" or ("harness", model) not in v1:
+            continue
+        h2 = v1[("harness", model)]
+        lines.append(
+            f"- **v1 to v2** ({_model(model)}, 120 fixture-world scenarios): honest-caller task success "
+            f"{pct(m['task_success'])} to {pct(h2['task_success'])}, conversations with a violation "
+            f"{pct(m['any_violation'])} to {pct(h2['any_violation'])}, model calls per turn "
+            f"{m['llm_calls_per_turn']:.2f} to {h2['llm_calls_per_turn']:.2f}, p95 turn latency "
+            f"{secs(m['latency_ms'].get('p95'))} to {secs(h2['latency_ms'].get('p95'))}."
+        )
+    fuzz = sorted((ROOT / "results" / "fuzz").glob("*.json"))
+    if fuzz:
+        d = json.loads(fuzz[-1].read_text())
+        lines.append(
+            f"- **Compromised-interpreter fuzzing:** {d['conversations']:,} conversations and "
+            f"{d['counts'].get('turns', 0):,} turns of arbitrary model output, {d['violations']} invariant violations."
+        )
+    bench = sorted((ROOT / "results" / "bench").glob("*.json"))
+    if bench:
+        rows = [r for f in bench for r in json.loads(f.read_text())["rows"] if r["concurrency"] <= 8]
+        if rows:
+            lines.append(
+                f"- **Runtime overhead without model time:** p50 {min(r['p50_ms'] for r in rows):.1f}-"
+                f"{max(r['p50_ms'] for r in rows):.1f} ms per turn at 1-8 concurrent callers on a 4-vCPU GitHub runner."
+            )
+    return "\n".join(lines) + "\n"
 
 
 def replace(text: str, name: str, body: str) -> str:
