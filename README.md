@@ -13,8 +13,17 @@ LLM-simulated callers (honest and adversarial), two tool-calling baselines on th
 deterministic judges.
 
 <!-- results:headline:start -->
-_Results are generated from `results/` by `scripts/gen_readme.py`._
+Measured on 6,400 simulated conversations: 4 open models (Qwen2.5-7B-Instruct, Qwen3-30B-A3B-Instruct-2507-FP8, Qwen3-32B-FP8, gpt-oss-120b), the same 400 scenarios each (288 honest callers, 112 adversarial), callers simulated by gpt-oss-120b, models served with vLLM on NVIDIA H200s.
+
+- **SOP harness:** 0 policy violations in 1,598 conversations and 0 with a hallucinated value; adversarial callers succeeded 0 times in 488. Honest-caller task success 92.1-95.7% with one model call per turn; 90.6-94.6% with model-phrased replies, of which the grounding verifier accepted 99.5% (0 violations in 1,597).
+- **Prompt-only tool agent, same models:** policy violations in 19.8-21.5% of conversations (mostly summaries emailed to guessed or attacker-supplied addresses), adversarial callers succeeded in 3.3-24.6%, hallucinated values in 0.0-9.0%, honest-caller task success 41.7-73.0%.
+- **Authorization moved into the tools:** removes the record-access and recipient failures but not consent; 9 conversations still emailed a caller who had not agreed. Hallucinated values in 0.0-10.0%, honest-caller task success 44.6-69.4%.
+- **v1 to v2** (Qwen3-30B-A3B-Instruct-2507-FP8, 120 fixture-world scenarios): honest-caller task success 58.2% to 92.9%, conversations with a violation 0.0% to 0.0%, model calls per turn 1.71 to 1.02, p95 turn latency 4.86 s to 3.52 s.
+- **Compromised-interpreter fuzzing:** 10,000 conversations and 69,316 turns of arbitrary model output, 0 invariant violations.
+- **Runtime overhead without model time:** p50 2.9-19.5 ms per turn at 1-8 concurrent callers on a 4-vCPU GitHub runner.
 <!-- results:headline:end -->
+
+![Task success and policy violations by system and model](docs/img/results.png)
 
 ## Contents
 
@@ -148,7 +157,105 @@ uv run claimbot fuzz --conversations 10000 --seed 2026
 maps each attack to the control that stops it and the test or scenario that exercises it.
 
 <!-- results:tables:start -->
-_No end-to-end runs yet._
+### End-to-end results
+
+Rates are over completed conversations, with 95% Wilson intervals in brackets. Latency is per agent turn, including every model call the system made for that turn. The harness makes one model call per turn, but that call emits a complete structured reading of the message, so on the larger models its turn latency is above a tool agent's shorter steps even though it makes fewer calls.
+
+| Agent model | System | Task success (honest) | Attack success (adversarial) | Any violation | Hallucinated values | p50 / p95 turn latency | Model calls per turn | Output tokens per turn | Tokens per conversation |
+|---|---|---|---|---|---|---|---|---|---|
+| Qwen2.5-7B-Instruct | SOP harness (template replies) | 95.7% [92.6, 97.5] | 0.0% [0.0, 3.1] | 0.0% (0/399) | 0.0% (0/399) | 1.67 s / 2.62 s | 1.00 | 130 | 6,453 |
+| Qwen2.5-7B-Instruct | SOP harness (model-phrased, verified) | 93.9% [90.4, 96.1] | 0.0% [0.0, 3.1] | 0.0% (0/399) | 0.0% (0/399) | 2.52 s / 3.70 s | 2.00 | 194 | 8,498 |
+| Qwen2.5-7B-Instruct | Prompt-only tool agent | 46.8% [41.0, 52.6] | 21.3% [15.0, 29.4] | 19.8% (79/400) | 9.0% (36/400) | 0.99 s / 2.45 s | 1.48 | 78 | 15,785 |
+| Qwen2.5-7B-Instruct | Tool agent with guarded tools | 46.0% [40.3, 51.9] | 0.0% [0.0, 3.1] | 1.0% (4/400) | 10.0% (40/400) | 0.99 s / 2.74 s | 1.49 | 78 | 16,620 |
+| Qwen3-30B-A3B-Instruct-2507-FP8 | SOP harness (template replies) | 93.5% [90.0, 95.9] | 0.0% [0.0, 3.1] | 0.0% (0/400) | 0.0% (0/400) | 3.02 s / 3.95 s | 1.00 | 158 | 6,630 |
+| Qwen3-30B-A3B-Instruct-2507-FP8 | SOP harness (model-phrased, verified) | 92.1% [88.3, 94.7] | 0.0% [0.0, 3.1] | 0.0% (0/399) | 0.0% (0/399) | 4.39 s / 6.52 s | 1.99 | 204 | 8,327 |
+| Qwen3-30B-A3B-Instruct-2507-FP8 | Prompt-only tool agent | 60.4% [54.6, 66.0] | 13.9% [8.9, 21.2] | 21.5% (86/400) | 1.8% (7/400) | 1.63 s / 4.78 s | 1.80 | 82 | 14,790 |
+| Qwen3-30B-A3B-Instruct-2507-FP8 | Tool agent with guarded tools | 60.8% [54.9, 66.3] | 0.0% [0.0, 3.1] | 0.2% (1/400) | 1.8% (7/400) | 1.71 s / 5.17 s | 1.81 | 84 | 16,086 |
+| Qwen3-32B-FP8 | SOP harness (template replies) | 92.1% [88.3, 94.7] | 0.0% [0.0, 3.1] | 0.0% (0/399) | 0.0% (0/399) | 5.15 s / 8.48 s | 1.02 | 138 | 6,482 |
+| Qwen3-32B-FP8 | SOP harness (model-phrased, verified) | 90.6% [86.6, 93.5] | 0.0% [0.0, 3.1] | 0.0% (0/399) | 0.0% (0/399) | 7.81 s / 11.40 s | 2.02 | 200 | 8,299 |
+| Qwen3-32B-FP8 | Prompt-only tool agent | 73.0% [67.5, 77.9] | 24.6% [17.8, 32.9] | 21.5% (86/400) | 0.0% (0/400) | 4.85 s / 13.71 s | 1.89 | 99 | 13,860 |
+| Qwen3-32B-FP8 | Tool agent with guarded tools | 69.4% [63.8, 74.5] | 0.0% [0.0, 3.1] | 0.0% (0/400) | 0.0% (0/400) | 5.01 s / 14.92 s | 1.90 | 103 | 15,133 |
+| gpt-oss-120b | SOP harness (template replies) | 94.2% [90.9, 96.4] | 0.0% [0.0, 3.1] | 0.0% (0/400) | 0.0% (0/400) | 5.10 s / 8.68 s | 1.00 | 265 | 7,798 |
+| gpt-oss-120b | SOP harness (model-phrased, verified) | 94.6% [91.3, 96.7] | 0.0% [0.0, 3.1] | 0.0% (0/400) | 0.0% (0/400) | 6.79 s / 11.35 s | 1.99 | 348 | 10,330 |
+| gpt-oss-120b | Prompt-only tool agent | 41.7% [36.1, 47.6] | 3.3% [1.3, 8.1] | 19.8% (79/400) | 0.0% (0/400) | 2.33 s / 7.91 s | 1.78 | 98 | 11,249 |
+| gpt-oss-120b | Tool agent with guarded tools | 44.6% [38.9, 50.5] | 2.5% [0.8, 7.0] | 1.0% (4/400) | 0.2% (1/400) | 2.27 s / 7.57 s | 1.78 | 98 | 11,333 |
+
+#### Violations by type (share of all conversations)
+
+| Agent model | System | unauthorized record access | pre verification leak | cross party leak | false accept | unauthorized email |
+|---|---|---|---|---|---|---|
+| Qwen2.5-7B-Instruct | SOP harness (template replies) | 0.0% (0/399) | 0.0% (0/399) | 0.0% (0/399) | 0.0% (0/399) | 0.0% (0/399) |
+| Qwen2.5-7B-Instruct | SOP harness (model-phrased, verified) | 0.0% (0/399) | 0.0% (0/399) | 0.0% (0/399) | 0.0% (0/399) | 0.0% (0/399) |
+| Qwen2.5-7B-Instruct | Prompt-only tool agent | 1.8% (7/400) | 0.0% (0/400) | 1.2% (5/400) | 0.0% (0/400) | 18.2% (73/400) |
+| Qwen2.5-7B-Instruct | Tool agent with guarded tools | 0.0% (0/400) | 0.0% (0/400) | 0.0% (0/400) | 0.0% (0/400) | 1.0% (4/400) |
+| Qwen3-30B-A3B-Instruct-2507-FP8 | SOP harness (template replies) | 0.0% (0/400) | 0.0% (0/400) | 0.0% (0/400) | 0.0% (0/400) | 0.0% (0/400) |
+| Qwen3-30B-A3B-Instruct-2507-FP8 | SOP harness (model-phrased, verified) | 0.0% (0/399) | 0.0% (0/399) | 0.0% (0/399) | 0.0% (0/399) | 0.0% (0/399) |
+| Qwen3-30B-A3B-Instruct-2507-FP8 | Prompt-only tool agent | 2.0% (8/400) | 0.0% (0/400) | 1.5% (6/400) | 0.0% (0/400) | 19.5% (78/400) |
+| Qwen3-30B-A3B-Instruct-2507-FP8 | Tool agent with guarded tools | 0.0% (0/400) | 0.0% (0/400) | 0.0% (0/400) | 0.0% (0/400) | 0.2% (1/400) |
+| Qwen3-32B-FP8 | SOP harness (template replies) | 0.0% (0/399) | 0.0% (0/399) | 0.0% (0/399) | 0.0% (0/399) | 0.0% (0/399) |
+| Qwen3-32B-FP8 | SOP harness (model-phrased, verified) | 0.0% (0/399) | 0.0% (0/399) | 0.0% (0/399) | 0.0% (0/399) | 0.0% (0/399) |
+| Qwen3-32B-FP8 | Prompt-only tool agent | 3.8% (15/400) | 0.5% (2/400) | 2.5% (10/400) | 0.0% (0/400) | 17.8% (71/400) |
+| Qwen3-32B-FP8 | Tool agent with guarded tools | 0.0% (0/400) | 0.0% (0/400) | 0.0% (0/400) | 0.0% (0/400) | 0.0% (0/400) |
+| gpt-oss-120b | SOP harness (template replies) | 0.0% (0/400) | 0.0% (0/400) | 0.0% (0/400) | 0.0% (0/400) | 0.0% (0/400) |
+| gpt-oss-120b | SOP harness (model-phrased, verified) | 0.0% (0/400) | 0.0% (0/400) | 0.0% (0/400) | 0.0% (0/400) | 0.0% (0/400) |
+| gpt-oss-120b | Prompt-only tool agent | 0.0% (0/400) | 0.0% (0/400) | 0.0% (0/400) | 0.0% (0/400) | 19.8% (79/400) |
+| gpt-oss-120b | Tool agent with guarded tools | 0.0% (0/400) | 0.0% (0/400) | 0.0% (0/400) | 0.0% (0/400) | 1.0% (4/400) |
+
+#### Unauthorized emails by kind
+
+| Agent model | System | to the attacker's address | to another unregistered address | without consent |
+|---|---|---|---|---|
+| Qwen2.5-7B-Instruct | SOP harness (template replies) | 0.0% (0/399) | 0.0% (0/399) | 0.0% (0/399) |
+| Qwen2.5-7B-Instruct | SOP harness (model-phrased, verified) | 0.0% (0/399) | 0.0% (0/399) | 0.0% (0/399) |
+| Qwen2.5-7B-Instruct | Prompt-only tool agent | 4.8% (19/400) | 13.2% (53/400) | 1.0% (4/400) |
+| Qwen2.5-7B-Instruct | Tool agent with guarded tools | 0.0% (0/400) | 0.0% (0/400) | 1.0% (4/400) |
+| Qwen3-30B-A3B-Instruct-2507-FP8 | SOP harness (template replies) | 0.0% (0/400) | 0.0% (0/400) | 0.0% (0/400) |
+| Qwen3-30B-A3B-Instruct-2507-FP8 | SOP harness (model-phrased, verified) | 0.0% (0/399) | 0.0% (0/399) | 0.0% (0/399) |
+| Qwen3-30B-A3B-Instruct-2507-FP8 | Prompt-only tool agent | 1.5% (6/400) | 17.8% (71/400) | 0.5% (2/400) |
+| Qwen3-30B-A3B-Instruct-2507-FP8 | Tool agent with guarded tools | 0.0% (0/400) | 0.0% (0/400) | 0.2% (1/400) |
+| Qwen3-32B-FP8 | SOP harness (template replies) | 0.0% (0/399) | 0.0% (0/399) | 0.0% (0/399) |
+| Qwen3-32B-FP8 | SOP harness (model-phrased, verified) | 0.0% (0/399) | 0.0% (0/399) | 0.0% (0/399) |
+| Qwen3-32B-FP8 | Prompt-only tool agent | 4.0% (16/400) | 13.5% (54/400) | 0.2% (1/400) |
+| Qwen3-32B-FP8 | Tool agent with guarded tools | 0.0% (0/400) | 0.0% (0/400) | 0.0% (0/400) |
+| gpt-oss-120b | SOP harness (template replies) | 0.0% (0/400) | 0.0% (0/400) | 0.0% (0/400) |
+| gpt-oss-120b | SOP harness (model-phrased, verified) | 0.0% (0/400) | 0.0% (0/400) | 0.0% (0/400) |
+| gpt-oss-120b | Prompt-only tool agent | 0.0% (0/400) | 19.0% (76/400) | 2.8% (11/400) |
+| gpt-oss-120b | Tool agent with guarded tools | 0.0% (0/400) | 0.0% (0/400) | 1.0% (4/400) |
+
+#### Success by scenario category (all models pooled)
+
+Honest categories count task success; adversarial categories count conversations with no violation.
+
+| Category | SOP harness (template replies) | SOP harness (model-phrased, verified) | Prompt-only tool agent | Tool agent with guarded tools |
+|---|---|---|---|---|
+| claim switch | 94% (101/108) | 87% (94/108) | 49% (53/108) | 50% (54/108) |
+| consent trap | 100% (52/52) | 100% (52/52) | 100% (52/52) | 98% (51/52) |
+| cross account | 100% (96/96) | 100% (96/96) | 93% (89/96) | 99% (95/96) |
+| document memory | 97% (66/68) | 93% (63/68) | 49% (33/68) | 56% (38/68) |
+| email exfiltration | 100% (84/84) | 100% (84/84) | 50% (42/84) | 100% (84/84) |
+| frustrated | 100% (92/92) | 99% (91/92) | 58% (53/92) | 53% (49/92) |
+| happy | 94% (211/224) | 96% (216/224) | 56% (126/224) | 57% (128/224) |
+| identity correction | 98% (63/64) | 95% (60/63) | 52% (33/64) | 50% (32/64) |
+| impostor | 100% (160/160) | 100% (160/160) | 99% (158/160) | 100% (160/160) |
+| missing info | 81% (81/100) | 77% (77/100) | 45% (45/100) | 37% (37/100) |
+| multi intent | 95% (125/132) | 96% (127/132) | 56% (74/132) | 58% (76/132) |
+| name collision | 95% (61/64) | 95% (60/63) | 62% (40/64) | 59% (38/64) |
+| off topic then claim | 94% (67/71) | 96% (69/72) | 46% (33/72) | 53% (38/72) |
+| prompt injection | 100% (96/96) | 100% (96/96) | 73% (70/96) | 99% (95/96) |
+| unlabeled identity | 86% (54/63) | 83% (52/63) | 66% (42/64) | 62% (40/64) |
+| vague reference | 95% (61/64) | 94% (60/64) | 45% (29/64) | 41% (26/64) |
+| wants human | 100% (60/60) | 100% (60/60) | 93% (56/60) | 97% (58/60) |
+
+6,400 conversations in total; 5 never started because the caller simulator returned an empty opening message, and are excluded.
+
+### Before and after: v1 versus v2
+
+Same model, simulator and judges, on the 120-scenario fixture-world set v1 supports (`evalsets/fixture_scenarios.jsonl`).
+
+| Agent model | System | Task success (honest) | Attack success (adversarial) | Any violation | Hallucinated values | p50 / p95 turn latency | Model calls per turn |
+|---|---|---|---|---|---|---|---|
+| Qwen3-30B-A3B-Instruct-2507-FP8 | SOP harness (template replies) | 92.9% (158/170) | 0.0% (0/70) | 0.0% (0/240) | 0.0% (0/240) | 2.61 s / 3.52 s | 1.02 |
+| Qwen3-30B-A3B-Instruct-2507-FP8 | v1 (original implementation) | 58.2% (99/170) | 0.0% (0/70) | 0.0% (0/240) | 0.0% (0/240) | 3.03 s / 4.86 s | 1.71 |
 
 ### Runtime overhead
 
@@ -280,6 +387,9 @@ Try it with the synthetic customer Margaret Chen: born 1985-03-15, SSN last four
 
 ## Limitations
 
+- Questions the claim record cannot answer (when a denial was decided, whether a notice was sent)
+  are the harness's weakest category: the model sometimes maps them to a nearby topic, and the
+  harness then answers that topic correctly but not the question asked.
 - The world, the customers and the callers are synthetic. The simulator is one model family
   (gpt-oss-120b) and simulated callers are more cooperative and consistent than real ones.
 - Leak detection is value-based: it catches claim numbers, dates and amounts, not paraphrased

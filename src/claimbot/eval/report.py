@@ -107,6 +107,7 @@ def summarize(rows: list[dict[str, Any]]) -> dict[str, Any]:
         if latencies
         else {},
         "llm_calls_per_turn": statistics.fmean(t["llm_calls"] for t in turns) if turns else math.nan,
+        "output_tokens_per_turn": statistics.median(t["output_tokens"] for t in turns) if turns else math.nan,
         "tokens_per_conversation": statistics.fmean(
             sum(t["input_tokens"] + t["output_tokens"] for t in r["turns"]) for r in ok
         )

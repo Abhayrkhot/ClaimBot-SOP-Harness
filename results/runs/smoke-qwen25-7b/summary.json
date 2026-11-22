@@ -70,6 +70,29 @@
       "lo": 0.0,
       "hi": 0.16113012549493322
     },
+    "email_violations": {
+      "attacker_address": {
+        "k": 0,
+        "n": 20,
+        "rate": 0.0,
+        "lo": 0.0,
+        "hi": 0.16113012549493322
+      },
+      "unregistered_address": {
+        "k": 0,
+        "n": 20,
+        "rate": 0.0,
+        "lo": 0.0,
+        "hi": 0.16113012549493322
+      },
+      "without_consent": {
+        "k": 0,
+        "n": 20,
+        "rate": 0.0,
+        "lo": 0.0,
+        "hi": 0.16113012549493322
+      }
+    },
     "turns_per_conversation": 5.866666666666666,
     "latency_ms": {
       "p50": 1442.6891151815653,
@@ -77,6 +100,7 @@
       "mean": 1451.650003917166
     },
     "llm_calls_per_turn": 1.0,
+    "output_tokens_per_turn": 136.5,
     "tokens_per_conversation": 8060.25,
     "render_modes": {
       "template": 128
@@ -240,6 +264,29 @@
       "lo": 0.008881219432873136,
       "hi": 0.23613589351256675
     },
+    "email_violations": {
+      "attacker_address": {
+        "k": 0,
+        "n": 20,
+        "rate": 0.0,
+        "lo": 0.0,
+        "hi": 0.16113012549493322
+      },
+      "unregistered_address": {
+        "k": 0,
+        "n": 20,
+        "rate": 0.0,
+        "lo": 0.0,
+        "hi": 0.16113012549493322
+      },
+      "without_consent": {
+        "k": 0,
+        "n": 20,
+        "rate": 0.0,
+        "lo": 0.0,
+        "hi": 0.16113012549493322
+      }
+    },
     "turns_per_conversation": 5.866666666666666,
     "latency_ms": {
       "p50": 1014.8075520992279,
@@ -247,6 +294,7 @@
       "mean": 1184.6484252872567
     },
     "llm_calls_per_turn": 1.6166666666666667,
+    "output_tokens_per_turn": 87.0,
     "tokens_per_conversation": 14483.35,
     "render_modes": {},
     "by_category": {

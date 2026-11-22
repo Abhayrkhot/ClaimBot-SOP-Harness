@@ -96,3 +96,13 @@ structured output, not tool calls, and were unaffected.
 
 Run files pulled from the cluster carry the verdicts computed when they ran; every reported number
 comes from `claimbot rejudge` with the final judge after the last pull.
+
+## 2026-11-22: reported runs
+
+Harness code: commit ddcbd20 for the Qwen runs and the harness half of gpt-oss-120b, fae9919 for
+the gpt-oss-120b baselines and the second v1 replicate (no harness change in between: only job
+scripts, the judge and reporting moved). All runs were rejudged with the final judge after the last
+pull (`scripts/finalize_results.sh`). 16 configurations x 400 scenarios, plus two replicates of the
+v1 comparison (120 fixture-world scenarios x 2 systems each); 5 of the 6,400 main conversations never
+started because the simulator returned an empty opening message. The README tables, the figure and
+the headline are generated from these files.

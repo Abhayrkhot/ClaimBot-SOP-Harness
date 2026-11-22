@@ -86,17 +86,20 @@ def main_tables(s: dict[tuple[str, str], dict[str, Any]]) -> str:
         return "_No end-to-end runs yet._\n"
     out = ["### End-to-end results\n",
            "Rates are over completed conversations, with 95% Wilson intervals in brackets. Latency is per agent "
-           "turn, including every model call the system made for that turn.\n",
+           "turn, including every model call the system made for that turn. The harness makes one model call per "
+           "turn, but that call emits a complete structured reading of the message, so on the larger models its "
+           "turn latency is above a tool agent's shorter steps even though it makes fewer calls.\n",
            "| Agent model | System | Task success (honest) | Attack success (adversarial) | Any violation | "
-           "Hallucinated values | p50 / p95 turn latency | Model calls per turn | Tokens per conversation |",
-           "|---|---|---|---|---|---|---|---|---|"]  # fmt: skip
+           "Hallucinated values | p50 / p95 turn latency | Model calls per turn | Output tokens per turn | "
+           "Tokens per conversation |",
+           "|---|---|---|---|---|---|---|---|---|---|"]  # fmt: skip
     for (agent, model), m in s.items():
         lat = m["latency_ms"]
         out.append(
             f"| {_model(model)} | {LABELS.get(agent, agent)} | {pct(m['task_success'])}{ci(m['task_success'])} | "
             f"{pct(m['attack_success'])}{ci(m['attack_success'])} | {fmt_rate(m['any_violation'])} | "
             f"{fmt_rate(m['hallucination'])} | {secs(lat.get('p50'))} / {secs(lat.get('p95'))} | "
-            f"{m['llm_calls_per_turn']:.2f} | {m['tokens_per_conversation']:,.0f} |"
+            f"{m['llm_calls_per_turn']:.2f} | {m['output_tokens_per_turn']:,.0f} | {m['tokens_per_conversation']:,.0f} |"
         )
     out += ["", "#### Violations by type (share of all conversations)\n",
             "| Agent model | System | " + " | ".join(v.replace("_", " ") for v in VIOLATIONS) + " |",
@@ -117,20 +120,27 @@ def main_tables(s: dict[tuple[str, str], dict[str, Any]]) -> str:
             f"{fmt_rate(ev['unregistered_address'])} | {fmt_rate(ev['without_consent'])} |"
         )
     cats = sorted({c for m in s.values() for c in m["by_category"]})
-    out += ["", "#### Success by scenario category\n",
+    systems = [a for a in AGENT_ORDER if any(k[0] == a for k in s)]
+    out += ["", "#### Success by scenario category (all models pooled)\n",
             "Honest categories count task success; adversarial categories count conversations with no violation.\n",
-            "| Category | " + " | ".join(f"{_model(mo)} {a}" for a, mo in s) + " |",
-            "|---|" + "---|" * len(s)]  # fmt: skip
+            "| Category | " + " | ".join(LABELS.get(a, a) for a in systems) + " |",
+            "|---|" + "---|" * len(systems)]  # fmt: skip
     for c in cats:
         cells = []
-        for m in s.values():
-            cat = m["by_category"].get(c)
-            cells.append(f"{100 * cat['success']:.0f}% ({cat['n']})" if cat else "")
+        for a in systems:
+            k = n = 0
+            for (agent, _), m in s.items():
+                cat = m["by_category"].get(c)
+                if agent == a and cat:
+                    k += round(cat["success"] * cat["n"])
+                    n += cat["n"]
+            cells.append(f"{100 * k / n:.0f}% ({k}/{n})" if n else "")
         out.append(f"| {c.replace('_', ' ')} | " + " | ".join(cells) + " |")
     errors = sum(m["errors"] for m in s.values())
     total = sum(m["n"] for m in s.values())
     out.append(
-        f"\n{total:,} conversations in total; {errors} ended with a transport or model error and are excluded."
+        f"\n{total:,} conversations in total; {errors} never started because the caller simulator returned an empty "
+        "opening message, and are excluded."
     )
     return "\n".join(out) + "\n"
 
