@@ -52,6 +52,7 @@ CREATE TABLE IF NOT EXISTS outbox (
 CREATE INDEX IF NOT EXISTS outbox_pending ON outbox(id) WHERE status IN ('pending', 'sending');
 """
 
+SCHEMA_LOCK = 0x636C61696D  # "claim"
 _COLUMNS = "id, session_id, action, recipient, subject, body, status, attempts"
 
 
@@ -65,7 +66,10 @@ class PostgresStore:
 
     async def open(self) -> PostgresStore:
         await self.pool.open(wait=True, timeout=30)
-        async with self.pool.connection() as conn:
+        # Replicas and workers start together; concurrent CREATE ... IF NOT EXISTS can still race
+        # in the catalog (pg_type unique violation), so schema creation is serialized.
+        async with self.pool.connection() as conn, conn.transaction():
+            await conn.execute("SELECT pg_advisory_xact_lock(%s)", (SCHEMA_LOCK,))
             await conn.execute(SCHEMA)
         return self
 

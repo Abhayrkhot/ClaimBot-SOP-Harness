@@ -93,3 +93,20 @@ async def test_outbox_claims_are_exclusive(store: Any) -> None:
     if isinstance(store, SQLiteStore):
         return  # SQLite runs one dispatcher; only PostgreSQL promises exclusive claims
     assert sorted(ids) == sorted(set(ids)) and len(ids) == 6
+
+
+@pytest.mark.postgres
+async def test_concurrent_startup_on_empty_database() -> None:
+    """Four workers creating the schema at once must not race in the catalog."""
+    if not PG_URL:
+        pytest.skip("DATABASE_URL not set")
+    from claimbot.store.postgres import PostgresStore
+
+    first = await PostgresStore(PG_URL).open()
+    async with first.pool.connection() as conn:
+        await conn.execute("DROP TABLE IF EXISTS sessions, audit_events, outbox")
+    await first.close()
+    stores = await asyncio.gather(*(PostgresStore(PG_URL).open() for _ in range(4)))
+    assert all([await s.ping() for s in stores])
+    for s in stores:
+        await s.close()
