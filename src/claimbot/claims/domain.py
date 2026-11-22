@@ -17,7 +17,7 @@ from ..sop.policy import PolicyEnforcer, TurnContext
 from ..sop.spec import SOPSpec, load_spec
 from ..sop.state import ActionRequest, Fact
 from .facts import claim_facts, claim_label, list_facts, party_facts, select_for_topics
-from .identity import FIELD_LABELS, FIELDS, EvidenceError, validate_evidence
+from .identity import FIELD_LABELS, FIELDS, validate_evidence
 from .models import ClaimsSession, DocumentNote, Interpretation, RememberedHint
 from .repository import ClaimHint, Repository
 
@@ -217,13 +217,11 @@ class ClaimsDomain:
     def _verify(self, s: ClaimsSession, it: Interpretation, ctx: TurnContext) -> None:
         values: dict[str, str] = {}
         if it.identity is not None:
-            try:
-                values = validate_evidence(ctx.text, it.identity)
-            except EvidenceError as exc:
-                ctx.emit("identity_evidence_rejected", reason=str(exc))
-            ctx.redactions += [
-                v for v in it.identity.model_dump(exclude={"subject", "birth_date_is_callers"}).values() if v
-            ]
+            values, rejected = validate_evidence(ctx.text, it.identity)
+            for field, reason in rejected.items():
+                ctx.emit("identity_evidence_rejected", field=field, reason=reason)
+            cited = it.identity.model_dump(exclude={"subject", "birth_date_is_callers"})
+            ctx.redactions += [v for v in cited.values() if v]
         # Any turn that supplies verification details and still fails counts as an attempt.
         attempted = any(f in FIELDS for f in values)
         for field, value in values.items():

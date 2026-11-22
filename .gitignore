@@ -13,3 +13,4 @@ coverage.xml
 /data/
 /scratch/
 .DS_Store
+.explorer.env

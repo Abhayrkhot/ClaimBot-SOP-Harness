@@ -68,16 +68,19 @@ class IdentityReading(BaseModel):
 
 
 def parse_date(value: str) -> str | None:
-    """ISO date for an unambiguous date string, else None (``03/04/1990`` is ambiguous)."""
+    """ISO date for a date string, or None.
+
+    Numeric dates follow US convention (MM/DD/YYYY); day-first is accepted only when month-first
+    is impossible (``15/03/1985``). Formats with month names are unambiguous.
+    """
     cleaned = " ".join(value.replace(",", ", ").split()).replace(" ,", ",").strip(" .")
     cleaned = re.sub(r",\s*,", ",", cleaned)
-    found = set()
     for fmt in _DATE_FORMATS:
         try:
-            found.add(datetime.strptime(cleaned, fmt).date().isoformat())
+            return datetime.strptime(cleaned, fmt).date().isoformat()
         except ValueError:
             continue
-    return found.pop() if len(found) == 1 else None
+    return None
 
 
 def normalize(field: str, source: str) -> str | None:
@@ -154,19 +157,17 @@ def is_bare_list(text: str, sources: list[str]) -> bool:
     return re.fullmatch(r"[\s,;:/|().!?-]*", masked) is not None
 
 
-class EvidenceError(ValueError):
-    pass
+def validate_evidence(text: str, reading: IdentityReading) -> tuple[dict[str, str], dict[str, str]]:
+    """Canonical values whose cited spans survive local provenance checks, and why others failed.
 
-
-def validate_evidence(text: str, reading: IdentityReading) -> dict[str, str]:
-    """Canonical values whose cited spans survive local provenance checks.
-
-    Raises ``EvidenceError`` for spans that are not exact whole values of the message, that sit
-    inside quotation marks, or that one span claims for two fields. Returns an empty mapping
-    when the model reports the details belong to someone else or are hypothetical.
+    A cited span is rejected when it is not an exact whole value of the message, sits inside
+    quotation marks, is a fragment of a date or identifier, overlaps a span already used for
+    another field, or is not format-valid. A rejected field simply does not count; the other
+    fields in the same message still do. Nothing counts when the model reports the details
+    belong to someone else or are hypothetical.
     """
     if reading.subject != "caller":
-        return {}
+        return {}, {}
     cited = {
         "name": reading.name,
         "dob": reading.birth_date_quote,
@@ -176,32 +177,42 @@ def validate_evidence(text: str, reading: IdentityReading) -> dict[str, str]:
         "policy_number": reading.policy_number,
     }
     quoted = [(m.start(), m.end()) for m in re.finditer(r"\"[^\"\n]*\"|“[^”\n]*”", text)]
-    taken: list[tuple[int, int, str]] = []
+    taken: list[tuple[int, int]] = []
     values: dict[str, str] = {}
+    rejected: dict[str, str] = {}
     for field, source in cited.items():
         if not source:
             continue
-        start = text.find(source)
-        end = start + len(source)
-        if start < 0 or (start and text[start - 1].isalnum()) or (end < len(text) and text[end].isalnum()):
-            raise EvidenceError(f"{field} evidence is not an exact whole value of the message")
-        if any(a < start and end < b for a, b in quoted):
-            raise EvidenceError(f"{field} evidence is quoted material")
-        if field == "id_last4" and (
-            (start and text[start - 1] in "-/") or (end < len(text) and text[end] in "-/")
-        ):
-            raise EvidenceError("id_last4 evidence is part of a date or identifier")
-        if any(start < b and end > a for a, b, _ in taken):
-            raise EvidenceError(f"{field} evidence overlaps another field")
         value = normalize(field, source)
         if value is None:
-            raise EvidenceError(f"{field} evidence is not a valid {field}")
-        taken.append((start, end, field))
-        values[field] = value
+            rejected[field] = "not a valid value"
+            continue
+        reason = "not an exact whole value of the message"
+        for match in re.finditer(re.escape(source), text):
+            start, end = match.span()
+            if (start and text[start - 1].isalnum()) or (end < len(text) and text[end].isalnum()):
+                continue
+            if any(a < start and end < b for a, b in quoted):
+                reason = "quoted material"
+                continue
+            if field == "id_last4" and (
+                (start and text[start - 1] in "-/") or (end < len(text) and text[end] in "-/")
+            ):
+                reason = "part of a date or identifier"
+                continue
+            if any(start < b and end > a for a, b in taken):
+                reason = "overlaps another field"
+                continue
+            taken.append((start, end))
+            values[field] = value
+            break
+        else:
+            rejected[field] = reason
     if (
         "dob" in values
         and not reading.birth_date_is_callers
-        and not is_bare_list(text, [s for s in cited.values() if s])
+        and not is_bare_list(text, [v for v in cited.values() if v])
     ):
         values.pop("dob")
-    return values
+        rejected["dob"] = "not stated as the caller's birth date"
+    return values, rejected
