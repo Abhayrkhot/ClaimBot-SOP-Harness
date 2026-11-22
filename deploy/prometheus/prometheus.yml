@@ -1,0 +1,7 @@
+global:
+  scrape_interval: 5s
+scrape_configs:
+  - job_name: claimbot
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["agent:8000"]

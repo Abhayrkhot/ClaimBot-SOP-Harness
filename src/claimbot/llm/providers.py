@@ -32,13 +32,14 @@ class OpenAICompatProvider:
         base_url: str | None = None,
         extra_body: dict[str, Any] | None = None,
         name: str | None = None,
+        http_client: Any = None,
     ) -> None:
         from openai import AsyncOpenAI
 
         self.model = model
         self.name = name or ("openai" if base_url is None else "openai-compatible")
         self.extra_body = extra_body or {}
-        self._client = AsyncOpenAI(api_key=api_key, base_url=base_url, max_retries=0)
+        self._client = AsyncOpenAI(api_key=api_key, base_url=base_url, max_retries=0, http_client=http_client)
 
     async def complete(self, request: LLMRequest, timeout: float) -> LLMResponse:
         import openai
@@ -79,13 +80,15 @@ class OpenAICompatProvider:
 
 
 class AnthropicProvider:
-    def __init__(self, model: str, api_key: str | None = None, effort: str | None = None) -> None:
+    def __init__(
+        self, model: str, api_key: str | None = None, effort: str | None = None, http_client: Any = None
+    ) -> None:
         from anthropic import AsyncAnthropic
 
         self.model = model
         self.name = "anthropic"
         self.effort = effort
-        self._client = AsyncAnthropic(api_key=api_key, max_retries=0)
+        self._client = AsyncAnthropic(api_key=api_key, max_retries=0, http_client=http_client)
 
     async def complete(self, request: LLMRequest, timeout: float) -> LLMResponse:
         import anthropic

@@ -1,0 +1,7 @@
+apiVersion: 1
+providers:
+  - name: claimbot
+    folder: ClaimBot
+    type: file
+    options:
+      path: /var/lib/grafana/dashboards

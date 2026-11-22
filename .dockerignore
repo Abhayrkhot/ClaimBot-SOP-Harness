@@ -1,8 +1,17 @@
-# Keep secrets, local state, Git history, and generated evidence out of images.
-.env
 .git
-__pycache__
+.github
+.venv
+**/__pycache__
 .pytest_cache
 .ruff_cache
-evaluation-results
+.mypy_cache
+.hypothesis
+.coverage
+.env
 *.sqlite3
+data
+results
+docs
+tests
+scripts
+deploy

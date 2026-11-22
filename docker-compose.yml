@@ -1,20 +1,72 @@
-# Local single-service deployment. The host port and model provider are selected
-# through environment variables; session data survives restarts in a named volume.
+# Local production-like stack.
+#   docker compose up --build -d                          agent + PostgreSQL + Mailpit
+#   docker compose --profile observability up --build -d  adds Prometheus, Grafana and Jaeger
+# Model provider settings come from .env (see .env.example); without one the agent runs in rules mode.
 services:
   agent:
     build: .
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DATABASE_URL: postgresql://claimbot:claimbot@postgres:5432/claimbot
+      SMTP_HOST: mailpit
+      SMTP_PORT: "1025"
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      ADMIN_API_TOKEN: ${ADMIN_API_TOKEN:-}
     ports:
       - "127.0.0.1:${HOST_PORT:-8000}:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mailpit:
+        condition: service_started
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:17-alpine
     environment:
-      # Set one key. Without one the agent runs in its deterministic rules fallback.
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      LLM_MODEL: ${LLM_MODEL:-}
-      LLM_TURN_BUDGET_SECONDS: ${LLM_TURN_BUDGET_SECONDS:-45}
-      LLM_API_KEY: ${LLM_API_KEY:-}
-      LLM_BASE_URL: ${LLM_BASE_URL:-}
-      ADMIN_API_TOKEN: ${ADMIN_API_TOKEN:-}
+      POSTGRES_USER: claimbot
+      POSTGRES_PASSWORD: claimbot
+      POSTGRES_DB: claimbot
     volumes:
-      - sessions:/data
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U claimbot -d claimbot"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  mailpit:
+    image: axllent/mailpit:v1.21
+    ports:
+      - "127.0.0.1:${MAILPIT_PORT:-8025}:8025"
+
+  prometheus:
+    image: prom/prometheus:v3.0.1
+    profiles: [observability]
+    volumes:
+      - ./deploy/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "127.0.0.1:${PROMETHEUS_PORT:-9090}:9090"
+
+  grafana:
+    image: grafana/grafana:11.3.1
+    profiles: [observability]
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+    volumes:
+      - ./deploy/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./deploy/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "127.0.0.1:${GRAFANA_PORT:-3000}:3000"
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.63.0
+    profiles: [observability]
+    ports:
+      - "127.0.0.1:${JAEGER_PORT:-16686}:16686"
+
 volumes:
-  sessions:
+  pgdata:
