@@ -216,3 +216,76 @@ def validate_evidence(text: str, reading: IdentityReading) -> tuple[dict[str, st
         values.pop("dob")
         rejected["dob"] = "not stated as the caller's birth date"
     return values, rejected
+
+
+# -- deterministic extraction (fills fields a model missed; never overrides its attribution) ------
+
+_LABELED = {
+    "birth_date_quote": r"\b(?:dob|d\.o\.b\.?|date of birth|birth ?date|born(?: on)?|birthday)\s*(?:is|was|:|-)?\s*"
+    r"(\d{4}-\d{2}-\d{2}|\d{1,2}/\d{1,2}/\d{4}|\d{1,2} [A-Za-z]+ \d{4}|[A-Za-z]+\.? \d{1,2}(?:st|nd|rd|th)?,? \d{4})",
+    "phone": r"\b(?:phone|mobile|cell|telephone)(?: number| no\.?)?\s*(?:is|:|-)?\s*(\+?\(?\d[\d ().-]{8,}\d)",
+    "email": r"([\w.+-]+@[\w-]+(?:\.[\w-]+)*\.[A-Za-z]{2,})",
+    "policy_number": r"\b(POL-\d+)\b",
+    "id_last4": r"\b(?:ssn|social security(?: number)?|member id|id|last\s*(?:four|4)(?: digits)?)\b[^\d\n]{0,30}?(\d{4})\b",
+    "name": r"\b(?:my name is|my name's|name is|name:|full name:?|this is|i am|i'm)\s+"
+    r"([A-Z][A-Za-z'’-]+(?:\s+[A-Z][A-Za-z'’-]+){1,3})",
+}
+_THIRD_PARTY = re.compile(
+    r"\b(my (?:wife|husband|spouse|partner|mother|mom|father|dad|son|daughter|brother|sister|friend|client|"
+    r"boss|patient)(?:'s)?|his|her|their|for (?:my|a) [a-z]+)\b",
+    re.I,
+)
+
+
+def labeled_identity(text: str) -> IdentityReading | None:
+    """Values introduced by an explicit label ("DOB is ...", "last four 4472"), never a third party's."""
+    found: dict[str, str] = {}
+    for key, pattern in _LABELED.items():
+        for match in re.finditer(pattern, text, 0 if key == "name" else re.I):
+            window = text[max(0, match.start() - 30) : match.start(1)]
+            if _THIRD_PARTY.search(window):
+                continue
+            found[key] = match.group(1).strip(" .,")
+            break
+    if not found:
+        return None
+    return IdentityReading(subject="caller", birth_date_is_callers="birth_date_quote" in found, **found)
+
+
+def bare_list_identity(text: str) -> IdentityReading | None:
+    """An unlabeled list ("Jane Doe, 03/15/1985, 4472") where every item fits exactly one field."""
+    items = [i.strip(" .") for i in re.split(r"[,;|\n]+|\s+/\s+", text) if i.strip(" .")]
+    if len(items) < 2:
+        return None
+    keys = {"name": "name", "dob": "birth_date_quote", "phone": "phone", "email": "email", "id_last4": "id_last4",
+            "policy_number": "policy_number"}  # fmt: skip
+    found: dict[str, str] = {}
+    for item in items:
+        fits = [f for f in keys if normalize(f, item) is not None]
+        if len(fits) != 1 or keys[fits[0]] in found:
+            return None
+        found[keys[fits[0]]] = item
+    return IdentityReading(subject="caller", birth_date_is_callers="birth_date_quote" in found, **found)
+
+
+def merge_readings(model: IdentityReading | None, text: str) -> IdentityReading | None:
+    """The model's reading, with fields it left empty filled from deterministic extraction.
+
+    The model's judgment of whose details these are always wins: a reading attributed to someone
+    else, or hypothetical, is never filled in.
+    """
+    if model is not None and model.subject in ("someone_else", "hypothetical"):
+        return model
+    extra = bare_list_identity(text) or labeled_identity(text)
+    if extra is None:
+        return model
+    if model is None or model.subject == "none":
+        return extra
+    fields = ("name", "birth_date_quote", "phone", "email", "id_last4", "policy_number")
+    filled = {f: getattr(model, f) or getattr(extra, f) for f in fields}
+    used_extra_dob = not model.birth_date_quote and bool(extra.birth_date_quote)
+    return IdentityReading(
+        subject="caller",
+        birth_date_is_callers=model.birth_date_is_callers or (used_extra_dob and extra.birth_date_is_callers),
+        **filled,
+    )

@@ -17,7 +17,7 @@ from ..sop.policy import PolicyEnforcer, TurnContext
 from ..sop.spec import SOPSpec, load_spec
 from ..sop.state import ActionRequest, Fact
 from .facts import claim_facts, claim_label, list_facts, party_facts, select_for_topics
-from .identity import FIELD_LABELS, FIELDS, validate_evidence
+from .identity import FIELD_LABELS, FIELDS, merge_readings, validate_evidence
 from .models import ClaimsSession, DocumentNote, Interpretation, RememberedHint
 from .repository import ClaimHint, Repository
 
@@ -34,6 +34,26 @@ _NEGATION = re.compile(r"\b(don'?t|do not|no|not|never|cancel|stop)\b", re.I)
 _EMAIL = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)*\.[A-Za-z]{2,}")
 _DIGITS = re.compile(r"(?<![\w-])\+?\d[\d ()./-]{2,}\d(?!\w)")
 _DOC_STOPWORDS = {"report", "note", "the", "original", "provider", "treating", "photos", "scene"}
+_ASKS = re.compile(
+    r"\?|\b(what|when|why|how|which|where|who|whether|tell me|explain|give me|show me|let me know|need to know|"
+    r"want to know|would like to know|wondering|confirm|check|find out|look into|look up|walk me|remind me|"
+    r"need|want|asking about|interested in|update on|status)\b",
+    re.I,
+)
+_CLOSING = re.compile(
+    r"\b(that'?s (all|it|everything)|that is (all|it|everything)|that'?ll be all|that will be all|all (done|set)|"
+    r"i'?m (done|all set|finished)|i am (done|all set|finished)|nothing else|no more questions|no further|"
+    r"goodbye|bye|no,? (thanks|thank you))\b",
+    re.I,
+)
+_EMAIL_REQUEST = re.compile(r"\b(e-?mail|send)\b[^.?!]{0,40}\b(summary|recap|e-?mail|copy)\b", re.I)
+_POSSESSION = re.compile(
+    r"\b(have|has|had|got|lost|losing|missing|misplaced|can'?t find|cannot find|couldn'?t find|don'?t have|"
+    r"do not have|doesn'?t have|no longer|found|received|obtained|located|on hand|with me|came in|arrived|"
+    r"sent (?:it|them|me)|available)\b",
+    re.I,
+)
+_MONTH_NAMES = ("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec")
 
 
 class ClaimsDomain:
@@ -154,8 +174,12 @@ class ClaimsDomain:
         handler(s, it, ctx)
 
     def _acknowledge(self, it: Interpretation, ctx: TurnContext) -> None:
-        if it.emotion != "neutral" and not any(a.kind == "acknowledge" for a in ctx.acts):
+        """Acknowledge a negative emotion, at most once every three turns so it never becomes a tic."""
+        s: Any = ctx.session
+        recent = s.last_ack_turn is not None and s.turn - s.last_ack_turn < 3
+        if it.emotion != "neutral" and not recent and not any(a.kind == "acknowledge" for a in ctx.acts):
             ctx.say("acknowledge", emotion=it.emotion)
+            s.last_ack_turn = s.turn
 
     def _prompt_for_phase(self, s: ClaimsSession, ctx: TurnContext) -> None:
         if s.phase == "VERIFY_ID":
@@ -170,15 +194,37 @@ class ClaimsDomain:
     # -- cross-phase memory -----------------------------------------------------------------
 
     def _hint_from(self, it: Interpretation, text: str) -> RememberedHint:
+        """Claim attributes from the reading, keeping only those the caller actually stated.
+
+        Claim numbers, years and months must appear in the message itself; models readily fill
+        a plausible year or month the caller never said, which turns a match into "not found".
+        """
         ref = it.claim
+        low = text.casefold()
         case_id = ref.case_id.upper() if ref.case_id and ref.case_id.upper() in text.upper() else None
+        year = ref.year if ref.year and str(ref.year) in text else None
+        month = ref.month if ref.month and _MONTH_NAMES[ref.month - 1] in low else None
         return RememberedHint(
             case_id=case_id,
             case_type=ref.case_type if ref.case_type in self.repo.case_types else None,
             status=ref.status if ref.status in self.repo.statuses else None,
-            month=ref.month,
-            year=ref.year,
+            month=month,
+            year=year,
         )
+
+    def _find(self, party_id: str, hint: RememberedHint) -> list[dict[str, Any]]:
+        """Owned claims matching a hint, relaxing the least reliable attributes before giving up."""
+        h = ClaimHint(**hint.model_dump())
+        for relaxed in (h, ClaimHint(h.case_id, h.case_type, h.status, h.month, None),
+                        ClaimHint(h.case_id, h.case_type, h.status, None, None),
+                        ClaimHint(h.case_id, h.case_type, None, None, None)):  # fmt: skip
+            found = self.repo.find_claims(party_id, relaxed)
+            if found or h.case_id:
+                return found
+        return []
+
+    def _asks(self, text: str) -> bool:
+        return bool(_ASKS.search(text))
 
     def _remember(self, s: ClaimsSession, it: Interpretation, ctx: TurnContext) -> None:
         if s.phase in ("VERIFY_ID", "RESOLVE_INTENT"):
@@ -188,7 +234,8 @@ class ClaimsDomain:
                 if "case_id" in new:
                     merged = {"case_id": new["case_id"]}
                 s.hint = RememberedHint(**merged)
-            s.pending_topics = list(dict.fromkeys([*s.pending_topics, *it.topics]))[-8:]
+            if self._asks(ctx.text):
+                s.pending_topics = list(dict.fromkeys([*s.pending_topics, *it.topics]))[-8:]
         self._remember_documents(s, it, ctx)
 
     def _remember_documents(self, s: ClaimsSession, it: Interpretation, ctx: TurnContext) -> list[str]:
@@ -202,13 +249,15 @@ class ClaimsDomain:
             words = [w for w in update.document.casefold().split() if w not in _DOC_STOPWORDS]
             named = update.document.casefold() in text or any(w in text for w in words)
             only_known = len(s.documents) == 1 and update.document in s.documents
-            if not (named or only_known):
+            if not (named or only_known) or not _POSSESSION.search(ctx.text):
                 continue
             previous = s.documents.get(update.document)
             s.documents[update.document] = DocumentNote(status=update.status, turn=s.turn)
             ctx.emit("document_noted", document=update.document, status=update.status)
             if update.status == "missing" and (previous is None or previous.status != "missing"):
                 newly_missing.append(update.document)
+            elif update.status == "available":
+                ctx.notes.setdefault("documents_updated", []).append(update.document)
         ctx.notes["newly_missing"] = newly_missing
         return newly_missing
 
@@ -216,11 +265,12 @@ class ClaimsDomain:
 
     def _verify(self, s: ClaimsSession, it: Interpretation, ctx: TurnContext) -> None:
         values: dict[str, str] = {}
-        if it.identity is not None:
-            values, rejected = validate_evidence(ctx.text, it.identity)
+        reading = merge_readings(it.identity, ctx.text)
+        if reading is not None:
+            values, rejected = validate_evidence(ctx.text, reading)
             for field, reason in rejected.items():
                 ctx.emit("identity_evidence_rejected", field=field, reason=reason)
-            cited = it.identity.model_dump(exclude={"subject", "birth_date_is_callers"})
+            cited = reading.model_dump(exclude={"subject", "birth_date_is_callers"})
             ctx.redactions += [v for v in cited.values() if v]
         # Any turn that supplies verification details and still fails counts as an attempt.
         attempted = any(f in FIELDS for f in values)
@@ -279,7 +329,7 @@ class ClaimsDomain:
             ctx.say("no_claims")
             return
         hint = ClaimHint(**s.hint.model_dump())
-        matches = owned if hint.is_empty() else self.repo.find_claims(s.party_id, hint)
+        matches = owned if hint.is_empty() else self._find(s.party_id, s.hint)
         if len(matches) == 1:
             self._select(s, matches[0], ctx)
             self._answer(s, s.pending_topics or ["overview"], ctx)
@@ -311,54 +361,82 @@ class ClaimsDomain:
     def _process(self, s: ClaimsSession, it: Interpretation, ctx: TurnContext) -> None:
         assert s.party_id
         assert s.case_id
-        ref = it.claim
-        hint = self._hint_from(it, ctx.text)
-        wants_other = ref.action in ("switch", "select") and hint != RememberedHint()
-        if wants_other:
-            matches = self.repo.find_claims(s.party_id, ClaimHint(**hint.model_dump()))
-            if len(matches) == 1 and matches[0]["case_id"] != s.case_id:
-                s.documents = {}
-                self._select(s, matches[0], ctx, switched=True)
-                self._answer(s, it.topics or ["overview"], ctx)
-                self._follow_up(s, ctx)
-                return
-            if not matches or len(matches) > 1:
-                owned = self.repo.claims_of(s.party_id)
-                listed = ctx.disclose(*list_facts(matches or owned))
-                ctx.say("claim_choices", *listed, not_found=not matches, greeted=False)
-                s.awaiting = "claim_choice"
-                return
-        elif ref.action in ("switch", "ambiguous"):
-            others = [c for c in self.repo.claims_of(s.party_id) if c["case_id"] != s.case_id]
-            if others:
-                ctx.say("claim_choices", *ctx.disclose(*list_facts(others)), not_found=False, greeted=False)
-                s.awaiting = "claim_choice"
-                return
-        if it.act == "finish" and not it.topics:
+        text = ctx.text
+        if self._maybe_switch(s, it, ctx):
+            return
+        asks = self._asks(text)
+        email_request = bool(_EMAIL_REQUEST.search(text)) and not _NEGATION.search(text)
+        closing = bool(_CLOSING.search(text)) and "?" not in text
+        lexical_send = s.awaiting == "anything_else" and bool(_SEND.match(text)) and "send" in text.casefold()
+        if email_request or lexical_send:
+            if "?" in text and it.topics:
+                self._answer(s, it.topics, ctx)
+            self._finish(s, ctx, requested=email_request and not _EMAIL.search(text))
+            return
+        if (
+            closing
+            or (it.act == "finish" and "?" not in text)
+            or (it.act == "decline" and s.awaiting == "anything_else" and not asks)
+        ):
             self._finish(s, ctx)
             return
-        if it.act == "decline" and s.awaiting == "anything_else" and not it.topics:
-            self._finish(s, ctx)
-            return
-        topics = list(it.topics)
+        topics = list(it.topics) if asks else []
         newly_missing: list[str] = ctx.notes.get("newly_missing", [])
         if newly_missing and "document_alternatives" not in topics:
             ctx.say("documents_noted", documents=newly_missing, status="missing")
             topics.append("document_alternatives")
-        elif it.documents and not topics:
-            ctx.say(
-                "documents_noted", documents=[d.document for d in it.documents], status=it.documents[0].status
-            )
+        elif ctx.notes.get("documents_updated") and not topics:
+            ctx.say("documents_noted", documents=ctx.notes["documents_updated"], status="available")
         if topics:
             self._answer(s, topics, ctx)
             self._follow_up(s, ctx)
-        elif not it.documents:
-            if it.act in ("greeting", "confirm", "other", "ask_or_inform") and s.awaiting == "anything_else":
+        elif not ctx.notes.get("documents_updated"):
+            if s.awaiting == "anything_else" and not asks:
                 ctx.say("anything_else")
             else:
                 ctx.say("clarify")
         else:
             self._follow_up(s, ctx)
+
+    def _maybe_switch(self, s: ClaimsSession, it: Interpretation, ctx: TurnContext) -> bool:
+        """Change the active claim only when the caller clearly means a different one of theirs."""
+        assert s.party_id
+        assert s.case_id
+        ref = it.claim
+        hint = self._hint_from(it, ctx.text)
+        current = self.repo.claim(s.party_id, s.case_id)
+        assert current is not None
+        others = [c for c in self.repo.claims_of(s.party_id) if c["case_id"] != s.case_id]
+        explicit_id = hint.case_id is not None and hint.case_id != s.case_id
+        describes_current = bool(self._find(s.party_id, hint)) and current in self._find(s.party_id, hint)
+        if not (ref.action == "switch" or explicit_id or (ref.action == "select" and hint != RememberedHint()
+                                                            and not describes_current)):  # fmt: skip
+            if ref.action == "ambiguous" and others:
+                ctx.say("claim_choices", *ctx.disclose(*list_facts(others)), not_found=False, greeted=False)
+                s.awaiting = "claim_choice"
+                return True
+            return False
+        matches = (
+            [c for c in self._find(s.party_id, hint) if c["case_id"] != s.case_id]
+            if hint != RememberedHint()
+            else []
+        )
+        if len(matches) == 1:
+            s.documents = {}
+            self._select(s, matches[0], ctx, switched=True)
+            self._answer(s, it.topics if self._asks(ctx.text) and it.topics else ["overview"], ctx)
+            self._follow_up(s, ctx)
+            return True
+        if ref.action == "switch" or explicit_id:
+            not_found = explicit_id and not matches
+            options = matches or others
+            if options:
+                ctx.say(
+                    "claim_choices", *ctx.disclose(*list_facts(options)), not_found=not_found, greeted=False
+                )
+                s.awaiting = "claim_choice"
+                return True
+        return False
 
     def _follow_up(self, s: ClaimsSession, ctx: TurnContext) -> None:
         ctx.say("anything_else")
@@ -391,9 +469,13 @@ class ClaimsDomain:
             ctx.say("facts", *allowed)
         s.discussed = list(dict.fromkeys([*s.discussed, *(f.id for f in allowed)]))[-30:]
 
-    def _finish(self, s: ClaimsSession, ctx: TurnContext) -> None:
+    def _finish(self, s: ClaimsSession, ctx: TurnContext, requested: bool = False) -> None:
+        """Wrap up the claim discussion. A caller who asked for the summary has already consented."""
         ctx.transition("POST_PROCESS")
         ctx.record_consent(EMAIL_ACTION, "offered")
+        if requested:
+            self._send_email(s, ctx)
+            return
         self._offer_email(s, ctx, again=False)
 
     # -- POST_PROCESS -----------------------------------------------------------------------
@@ -408,31 +490,24 @@ class ClaimsDomain:
         assert s.party_id
         text = ctx.text
         decision = "send" if _SEND.match(text) else "skip" if _SKIP.match(text) else it.email_decision
+        if decision == "none" and _EMAIL_REQUEST.search(text) and not _NEGATION.search(text):
+            decision = "send"
+        registered = self.repo.person(s.party_id)["email"].casefold()
+        if decision == "send" and any(m.casefold() != registered for m in _EMAIL.findall(text)):
+            # Never redirect: the summary only goes to the address on file, and the caller must agree to that.
+            email = ctx.disclose(party_facts(self.repo.person(s.party_id))["email"])
+            ctx.say("email_registered_only", *email)
+            s.awaiting = "email_decision"
+            return
         if decision == "send" and not _SEND.match(text) and _NEGATION.search(text):
             ctx.say("confirm_email")
             return
-        if decision == "none" and it.topics:
+        if decision == "none" and it.topics and self._asks(text):
             self._answer(s, it.topics, ctx)
             self._offer_email(s, ctx, again=True)
             return
         if decision == "send":
-            ctx.record_consent(EMAIL_ACTION, "granted")
-            person = self.repo.person(s.party_id)
-            ctx.perform(
-                ActionRequest(
-                    action=EMAIL_ACTION,
-                    recipient=person["email"],
-                    subject="Your claim conversation summary",
-                    body=self.summary(s, ctx),
-                )
-            )
-            # Disclose the masked address while still in POST_PROCESS; COMPLETE discloses nothing.
-            email = ctx.disclose(party_facts(person)["email"])
-            ctx.transition("COMPLETE")
-            other_address = any(m.casefold() != person["email"].casefold() for m in _EMAIL.findall(text))
-            ctx.say("email_queued", *email, registered_only=other_address)
-            ctx.say("closing")
-            s.awaiting = None
+            self._send_email(s, ctx)
             return
         if decision == "skip":
             ctx.record_consent(EMAIL_ACTION, "declined")
@@ -442,6 +517,25 @@ class ClaimsDomain:
             s.awaiting = None
             return
         self._offer_email(s, ctx, again=True)
+
+    def _send_email(self, s: ClaimsSession, ctx: TurnContext) -> None:
+        assert s.party_id
+        ctx.record_consent(EMAIL_ACTION, "granted")
+        person = self.repo.person(s.party_id)
+        ctx.perform(
+            ActionRequest(
+                action=EMAIL_ACTION,
+                recipient=person["email"],
+                subject="Your claim conversation summary",
+                body=self.summary(s, ctx),
+            )
+        )
+        # Disclose the masked address while still in POST_PROCESS; COMPLETE discloses nothing.
+        email = ctx.disclose(party_facts(person)["email"])
+        ctx.transition("COMPLETE")
+        ctx.say("email_queued", *email, registered_only=False)
+        ctx.say("closing")
+        s.awaiting = None
 
     def summary(self, s: ClaimsSession, ctx: TurnContext) -> str:
         """Email body built only from facts this caller was told, plus next steps for their claim."""

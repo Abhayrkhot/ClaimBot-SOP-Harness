@@ -19,7 +19,7 @@ from ..llm.client import LLMClient
 from ..sop.engine import InterpretationError
 from ..sop.policy import TurnContext
 from .facts import TOPIC_DESCRIPTIONS
-from .identity import IdentityReading, candidate_spans
+from .identity import IdentityReading, bare_list_identity, candidate_spans, labeled_identity
 from .models import ClaimReference, ClaimsSession, DocumentUpdate, Interpretation
 from .repository import Repository
 
@@ -247,24 +247,7 @@ class RuleInterpreter:
         )
 
     def _identity(self, text: str) -> IdentityReading | None:
-        found: dict[str, str] = {}
-        patterns = {
-            "birth_date_quote": r"\b(?:dob|date of birth|born(?: on)?|birthday)\s*(?:is|:|-)?\s*"
-            r"(\d{4}-\d{2}-\d{2}|\d{1,2}/\d{1,2}/\d{4}|[A-Za-z]+ \d{1,2},? \d{4})",
-            "phone": r"\b(?:phone|mobile|cell)(?: number)?\s*(?:is|:)?\s*(\+?\(?\d[\d ()-]{8,}\d)",
-            "email": r"\b([\w.+-]+@[\w-]+(?:\.[\w-]+)*\.[A-Za-z]{2,})\b",
-            "policy_number": r"\b(POL-\d+)\b",
-            "id_last4": r"\b(?:ssn|social security|member id|id|last\s*(?:four|4))\b[^\d]{0,30}(\d{4})\b",
-            "name": r"\b(?:my name is|name is|name's|this is|i am|i'm)\s+([A-Z][A-Za-z'’-]+(?:\s+[A-Z][A-Za-z'’-]+){1,2})",
-        }
-        for key, pattern in patterns.items():
-            flags = 0 if key == "name" else re.I
-            match = re.search(pattern, text, flags)
-            if match:
-                found[key] = match.group(1)
-        if not found:
-            return None
-        return IdentityReading(subject="caller", birth_date_is_callers="birth_date_quote" in found, **found)
+        return labeled_identity(text) or bare_list_identity(text)
 
     def _claim(self, text: str) -> ClaimReference:
         match = re.search(r"\bCL-\d+\b", text, re.I)

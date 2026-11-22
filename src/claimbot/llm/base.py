@@ -55,21 +55,20 @@ _FENCE = re.compile(r"^```(?:json)?\s*|\s*```$", re.S)
 
 
 def parse_json(text: str) -> dict[str, Any]:
-    """Parse a JSON object, tolerating code fences and a leading reasoning preamble."""
+    """Parse the first JSON object in a response, tolerating code fences, preambles and trailing text."""
     cleaned = _FENCE.sub("", text.strip())
-    try:
-        value = json.loads(cleaned)
-    except json.JSONDecodeError:
-        start, end = cleaned.find("{"), cleaned.rfind("}")
-        if start < 0 or end <= start:
-            raise LLMOutputError("response is not JSON") from None
+    decoder = json.JSONDecoder()
+    start = cleaned.find("{")
+    while start >= 0:
         try:
-            value = json.loads(cleaned[start : end + 1])
-        except json.JSONDecodeError as exc:
-            raise LLMOutputError("response is not JSON") from exc
-    if not isinstance(value, dict):
-        raise LLMOutputError("response JSON is not an object")
-    return value
+            value, _ = decoder.raw_decode(cleaned, start)
+        except json.JSONDecodeError:
+            start = cleaned.find("{", start + 1)
+            continue
+        if isinstance(value, dict):
+            return value
+        start = cleaned.find("{", start + 1)
+    raise LLMOutputError("response is not a JSON object")
 
 
 def portable_schema(schema: dict[str, Any]) -> dict[str, Any]:

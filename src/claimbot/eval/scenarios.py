@@ -263,6 +263,11 @@ def generate(repo: Repository, n: int, seed: int = 11) -> list[Scenario]:
             else:
                 s.category = cat = "happy"
         elif cat == "missing_info":
+            denied = [c for c in owned if c["status"] == "denied"]
+            if denied:
+                claim = rng.choice(denied)
+                s.target_case = claim["case_id"]
+                s.claim_ref = describe_claim(claim, owned, rng)
             s.goals = [rng.choice(["decision_date", "notification"]), *goals_for(claim, rng, 1)]
         elif cat == "frustrated":
             s.style = "frustrated"

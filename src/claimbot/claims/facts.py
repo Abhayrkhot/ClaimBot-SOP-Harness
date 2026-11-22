@@ -210,6 +210,7 @@ def select_for_topics(
     topics: Iterable[str], facts: dict[str, Fact], missing_documents: Iterable[str] = ()
 ) -> list[Fact]:
     """Facts answering the requested topics, in a stable order without duplicates."""
+    topics = list(topics)
     keys: list[str] = []
     for topic in topics:
         if topic == "overview":
@@ -229,9 +230,11 @@ def select_for_topics(
             keys.append(topic)
         else:
             keys.append("other")
-    # A denial reason that already names every needed document makes the document list redundant.
+    # In an overview, a denial reason that names every needed document makes the list redundant.
+    # An explicit documents (or appeal) question always gets the explicit list.
     if (
-        "denial_reason" in keys
+        not ({"documents", "appeal"} & set(topics))
+        and "denial_reason" in keys
         and "documents" in keys
         and facts["denial_reason"].cls == "claim.denial_reason"
     ):

@@ -95,6 +95,12 @@ def render_act(act: Act, ctx: TurnContext) -> str:
                 "Before you go, would you like an email summary of our conversation, the claim status and"
                 f" next steps sent to {email}? Please reply send or skip."
             )
+        case "email_registered_only":
+            email = facts[0] if facts else "your registered email address"
+            return (
+                "For security, I can only send the summary to the email address on file, "
+                f"{email}. Would you like me to send it there? Please reply send or skip."
+            )
         case "confirm_email":
             return "Just to confirm, should I send the summary email? Please reply send or skip."
         case "email_queued":

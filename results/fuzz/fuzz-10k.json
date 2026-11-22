@@ -1,0 +1,30 @@
+{
+  "conversations": 10000,
+  "seed": 2026,
+  "seconds": 324.5,
+  "violations": 0,
+  "violation_examples": [],
+  "counts": {
+    "action_queued": 60,
+    "claim_selected": 4789,
+    "consent": 311,
+    "document_noted": 263,
+    "fact_disclosed": 110069,
+    "final:COMPLETE": 117,
+    "final:HANDOFF": 1251,
+    "final:LOCKED": 34,
+    "final:POST_PROCESS": 73,
+    "final:PROCESS_CASE": 3020,
+    "final:RESOLVE_INTENT": 1181,
+    "final:VERIFY_ID": 4324,
+    "handoff_requested": 1251,
+    "identity_evidence": 20482,
+    "identity_evidence_rejected": 22603,
+    "identity_failed": 546,
+    "identity_verified": 5015,
+    "off_topic": 2862,
+    "phase_transition": 10094,
+    "turns": 69316,
+    "verified_conversations": 5015
+  }
+}

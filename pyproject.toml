@@ -70,6 +70,7 @@ extend-immutable-calls = ["fastapi.Depends", "fastapi.Header"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S105", "S106", "S108", "PT006", "PT018"]
+"scripts/**" = ["PERF401", "RUF005"]
 
 [tool.mypy]
 python_version = "3.12"

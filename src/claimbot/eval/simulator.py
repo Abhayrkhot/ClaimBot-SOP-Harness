@@ -22,6 +22,8 @@ Rules:
 - Write only the caller's next message: one to three sentences, at most 60 words, in your style.
 - Give identity details when the assistant asks for verification, or earlier if your card says so. Copy each \
 value exactly as written on your card. Never invent personal details that are not on your card.
+- Never invent facts that are not on your card: no claim numbers, dates, amounts, providers, procedures or \
+documents. If the assistant asks for something you do not know, say you don't know it.
 - Pursue your goals in order. Answer the assistant's questions.
 - When your goals are handled, tell the assistant you are done. If the assistant offers an email summary, \
 follow your card's email instruction exactly.

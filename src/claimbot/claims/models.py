@@ -78,3 +78,4 @@ class ClaimsSession(BaseSession):
     discussed: list[str] = Field(default_factory=list)
     """Fact ids (``case:fact``) already told to the caller; feeds the summary email."""
     handoff: Literal["offered", "requested"] | None = None
+    last_ack_turn: int | None = None
