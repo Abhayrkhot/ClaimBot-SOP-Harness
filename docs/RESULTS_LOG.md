@@ -56,3 +56,21 @@ The same partial run surfaced two evaluation issues, fixed before the real runs:
 - When a caller said goodbye and marked the chat done, the runner stopped before the caller could
   answer the agent's email offer. The caller now gets one more turn whenever the agent's reply asks
   a question, for every system.
+
+## 2026-11-22: second full run stopped (consent shortcut sent unconsented email)
+
+With the cluster finally running the hardened code (commit f01ff9a), the first 120 Qwen2.5-7B
+conversations showed honest-caller task success up from 27% to 85% (75/88), no hallucinated values,
+and no record access or leaks. The judge did flag 3 unauthorized emails from the harness. The smoke
+fix that took an explicit "email me a summary" as consent and sent at once had also matched:
+
+- "Can I **send a visit summary** or other record instead, and how should I send it?" (documents),
+- "...give me the fax number to send the documents. And **skip the email summary**, please." (a refusal),
+- "Also, if you can send an email summary..." (conditional, from a caller who did not want one).
+
+The shortcut was removed. Mentioning the summary now only ends the case discussion and brings the
+offer forward; email is sent only on an explicit answer to the offer, as in v1's original design.
+Decline cues ("skip", "no need", "don't") count as declining, and a model that reads "send" when a
+decline cue is present gets a confirmation question instead. All three messages are regression
+tests. The run was cancelled and its partial output set aside; handoff scenarios no longer require
+verification to count as successful.

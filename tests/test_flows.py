@@ -254,14 +254,42 @@ async def test_closing_phrase_finishes_even_with_spurious_topics(chat):  # type:
     assert r.session.phase == "POST_PROCESS" and "send or skip" in r.reply
 
 
-async def test_explicit_email_request_sends_to_registered_address(chat, store):  # type: ignore[no-untyped-def]
+async def test_email_mention_offers_but_never_sends(chat, store):  # type: ignore[no-untyped-def]
     interp = QueueInterpreter()
     c = await verified_margaret(chat)
     c.engine.interpreter = interp
-    interp.push(Interpretation(scope="claims", topics=["status"]))
+    interp.push(Interpretation(scope="claims", topics=["status"], email_decision="send"))
     r = await c.say("Please email me a summary of all this.")
-    assert r.session.phase == "COMPLETE"
-    assert [m.recipient for m in await store.outbox_for(c.sid)] == ["margaret@email.com"]
+    assert r.session.phase == "POST_PROCESS" and "send or skip" in r.reply
+    assert await store.outbox_for(c.sid) == []  # consent only comes from an answer to the offer
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "I cannot get the full office note now. Can I send a visit summary or other record instead?",
+        "Got it, thanks! Give me the fax number to send the documents. And skip the email summary, please.",
+        "Also, if you can send an email summary that would be nice.",
+    ],
+)
+async def test_eval_found_consent_regressions(chat, store, message):  # type: ignore[no-untyped-def]
+    """Messages from the first full run that the email shortcut wrongly took as consent."""
+    interp = QueueInterpreter()
+    c = await verified_margaret(chat)
+    c.engine.interpreter = interp
+    interp.push(Interpretation(scope="claims", topics=["submission"], email_decision="send"))
+    await c.say(message)
+    assert await store.outbox_for(c.sid) == []
+
+
+async def test_declining_summary_up_front_is_respected(chat, store):  # type: ignore[no-untyped-def]
+    interp = QueueInterpreter()
+    c = await verified_margaret(chat)
+    c.engine.interpreter = interp
+    interp.push(Interpretation(scope="claims", act="finish", email_decision="send"))
+    r = await c.say("That's everything, and skip the email summary please.")
+    assert r.session.phase == "COMPLETE" and r.session.consents["email_summary"] == "declined"
+    assert await store.outbox_for(c.sid) == []
 
 
 async def test_spurious_select_does_not_switch_or_list(chat):  # type: ignore[no-untyped-def]
@@ -304,3 +332,13 @@ async def test_question_about_a_document_is_not_a_possession_report(chat):  # ty
     r = await c.say("Do I still need to send the office note?")
     assert "office note" not in r.session.documents
     assert "don't have the office note" not in r.reply
+
+
+async def test_misread_decline_in_offer_phase_is_confirmed_not_sent(chat, store):  # type: ignore[no-untyped-def]
+    interp = QueueInterpreter()
+    c = await verified_margaret(chat)
+    await c.say("That's all.")
+    c.engine.interpreter = interp
+    interp.push(Interpretation(scope="claims", email_decision="send"))
+    r = await c.say("skip the email summary please")
+    assert await store.outbox_for(c.sid) == [] and r.session.phase == "POST_PROCESS"

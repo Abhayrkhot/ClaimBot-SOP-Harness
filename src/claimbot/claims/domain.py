@@ -46,7 +46,13 @@ _CLOSING = re.compile(
     r"goodbye|bye|no,? (thanks|thank you))\b",
     re.I,
 )
-_EMAIL_REQUEST = re.compile(r"\b(e-?mail|send)\b[^.?!]{0,40}\b(summary|recap|e-?mail|copy)\b", re.I)
+# Mentions of the summary email. Never consent: they only bring the offer forward.
+_EMAIL_MENTION = re.compile(
+    r"\be-?mail(ed)?\b[^.?!]{0,30}\b(summary|recap)\b|\b(summary|recap)\b[^.?!]{0,20}\be-?mail", re.I
+)
+_DECLINE = re.compile(
+    r"\b(skip|no thanks|no need|don'?t|do not|not now|no email|without (an |the )?e-?mail)\b", re.I
+)
 _POSSESSION = re.compile(
     r"\b(have|has|had|got|lost|losing|missing|misplaced|can'?t find|cannot find|couldn'?t find|don'?t have|"
     r"do not have|doesn'?t have|no longer|found|received|obtained|located|on hand|with me|came in|arrived|"
@@ -365,13 +371,18 @@ class ClaimsDomain:
         if self._maybe_switch(s, it, ctx):
             return
         asks = self._asks(text)
-        email_request = bool(_EMAIL_REQUEST.search(text)) and not _NEGATION.search(text)
         closing = bool(_CLOSING.search(text)) and "?" not in text
-        lexical_send = s.awaiting == "anything_else" and bool(_SEND.match(text)) and "send" in text.casefold()
-        if email_request or lexical_send:
-            if "?" in text and it.topics:
+        # A mention of the summary (or "send" in reply to "anything else?") brings the offer forward.
+        # It is never taken as consent: email only goes out on an explicit answer to the offer.
+        mentions_email = bool(_EMAIL_MENTION.search(text)) or (
+            s.awaiting == "anything_else" and bool(_SEND.match(text)) and "send" in text.casefold()
+        )
+        if mentions_email:
+            if asks and it.topics:
                 self._answer(s, it.topics, ctx)
-            self._finish(s, ctx, requested=email_request and not _EMAIL.search(text))
+            if _DECLINE.search(text):
+                ctx.record_consent(EMAIL_ACTION, "declined")
+            self._finish(s, ctx)
             return
         if (
             closing
@@ -469,13 +480,16 @@ class ClaimsDomain:
             ctx.say("facts", *allowed)
         s.discussed = list(dict.fromkeys([*s.discussed, *(f.id for f in allowed)]))[-30:]
 
-    def _finish(self, s: ClaimsSession, ctx: TurnContext, requested: bool = False) -> None:
-        """Wrap up the claim discussion. A caller who asked for the summary has already consented."""
+    def _finish(self, s: ClaimsSession, ctx: TurnContext) -> None:
+        """Wrap up the claim discussion and offer the summary; a caller who already declined is not asked."""
         ctx.transition("POST_PROCESS")
-        ctx.record_consent(EMAIL_ACTION, "offered")
-        if requested:
-            self._send_email(s, ctx)
+        if s.consents.get(EMAIL_ACTION) == "declined":
+            ctx.transition("COMPLETE")
+            ctx.say("email_skipped")
+            ctx.say("closing")
+            s.awaiting = None
             return
+        ctx.record_consent(EMAIL_ACTION, "offered")
         self._offer_email(s, ctx, again=False)
 
     # -- POST_PROCESS -----------------------------------------------------------------------
@@ -490,8 +504,8 @@ class ClaimsDomain:
         assert s.party_id
         text = ctx.text
         decision = "send" if _SEND.match(text) else "skip" if _SKIP.match(text) else it.email_decision
-        if decision == "none" and _EMAIL_REQUEST.search(text) and not _NEGATION.search(text):
-            decision = "send"
+        if not (_SEND.match(text) or _SKIP.match(text)) and _DECLINE.search(text) and decision != "send":
+            decision = "skip"  # "skip the summary", "no need to email me"
         registered = self.repo.person(s.party_id)["email"].casefold()
         if decision == "send" and any(m.casefold() != registered for m in _EMAIL.findall(text)):
             # Never redirect: the summary only goes to the address on file, and the caller must agree to that.
@@ -499,7 +513,7 @@ class ClaimsDomain:
             ctx.say("email_registered_only", *email)
             s.awaiting = "email_decision"
             return
-        if decision == "send" and not _SEND.match(text) and _NEGATION.search(text):
+        if decision == "send" and not _SEND.match(text) and (_NEGATION.search(text) or _DECLINE.search(text)):
             ctx.say("confirm_email")
             return
         if decision == "none" and it.topics and self._asks(text):
