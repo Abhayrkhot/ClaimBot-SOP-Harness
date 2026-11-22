@@ -20,5 +20,8 @@ in_image() {
     if [ "$CB_CUDA_COMPAT" = 1 ]; then export LD_LIBRARY_PATH=/usr/local/cuda/compat${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}; fi
     exec "$@"' _ "$@"
 }
-cb() { in_image "$CB_ROOT/venv/bin/python" -m claimbot.cli "$@"; }
-export -f in_image cb
+# claimbot always runs from the job's own source tree (a git archive of one commit), never from a
+# package installed in the venv, so a job can only ever run the code it was submitted with.
+cb() { in_image env PYTHONPATH="$PWD/src" "$CB_ROOT/venv/bin/python" -m claimbot.cli "$@"; }
+cb_version() { in_image env PYTHONPATH="$PWD/src" "$CB_ROOT/venv/bin/python" -c 'import claimbot; print("claimbot", claimbot.__version__, "from", claimbot.__file__)'; }
+export -f in_image cb cb_version

@@ -37,3 +37,22 @@ reported runs use scenarios the fixes were not developed on.
 The first run (tag `bench-1`) found that four uvicorn workers starting together against an empty
 PostgreSQL database race in `CREATE TABLE IF NOT EXISTS` (pg_type unique violation; reproduced 10
 of 10 times locally). Schema creation now takes an advisory lock; `bench-2` is the first valid run.
+
+## 2026-11-22: first full runs aborted (stale code on the cluster)
+
+The first four full jobs (12066623-12066625, 12066752) were cancelled after about 100
+conversations. The setup job had installed claimbot into the cluster venv as a regular package,
+so `cb` imported that copy (commit 8c96969, before the hardening) instead of the source tree each
+job was submitted with; the transcripts still showed the smoke-run behaviour. Jobs now always run
+`PYTHONPATH=<job dir>/src` with the package uninstalled, and log the commit and import path.
+
+The same partial run surfaced two evaluation issues, fixed before the real runs:
+
+- One impostor card held the victim's phone and email, and the simulator inferred the full name
+  from the email address, which is three correct values; verifying then was SOP-compliant.
+  Impostors now know only the victim's name and birth date, and the judge counts a false accept
+  only when a system verified before three correct values of the verified party were typed (still
+  catching the wrong person among shared names).
+- When a caller said goodbye and marked the chat done, the runner stopped before the caller could
+  answer the agent's email offer. The caller now gets one more turn whenever the agent's reply asks
+  a question, for every system.

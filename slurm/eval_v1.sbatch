@@ -12,6 +12,7 @@ set -euo pipefail
 cd "$SLURM_SUBMIT_DIR"
 source slurm/env.sh
 source slurm/serve.sh
+echo "commit $(cat GIT_SHA 2>/dev/null)"; cb_version
 model=$1; tag=$2
 SIM=openai/gpt-oss-120b
 start_vllm "$SIM" 8002 "${CB_SIM_UTIL:-0.54}" --max-model-len 16384 --max-num-seqs 128

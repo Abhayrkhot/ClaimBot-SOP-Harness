@@ -127,7 +127,9 @@ async def run(cfg: RunConfig, http_client: Any = None) -> Path:
                     row["caller"] = caller.message
                     row["agent"] = row.pop("text")
                     turns.append(row)
-                    if reply.ended or caller.done:
+                    # A caller who says goodbye still answers a question the agent just asked
+                    # (an email offer, a confirmation); the same rule applies to every system.
+                    if reply.ended or (caller.done and "?" not in reply.text):
                         break
             except Exception as exc:  # recorded and excluded from rates, never silently dropped
                 error = f"{type(exc).__name__}: {str(exc)[:300]}"

@@ -15,6 +15,7 @@ set -euo pipefail
 cd "$SLURM_SUBMIT_DIR"
 source slurm/env.sh
 source slurm/serve.sh
+echo "commit $(cat GIT_SHA 2>/dev/null)"; cb_version
 model=$1; tag=$2; shift 2
 nvidia-smi --query-gpu=name,driver_version,memory.total --format=csv,noheader
 SIM=openai/gpt-oss-120b

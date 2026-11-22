@@ -16,7 +16,7 @@ in_image bash -c '
   [ -x "$CB_ROOT/venv/bin/python" ] || python3 -m venv "$CB_ROOT/venv"
   "$CB_ROOT/venv/bin/pip" install -q --upgrade pip
   "$CB_ROOT/venv/bin/pip" install -q -r slurm/requirements.lock pytest pytest-asyncio hypothesis
-  "$CB_ROOT/venv/bin/pip" install -q --no-deps --force-reinstall .
-  "$CB_ROOT/venv/bin/python" -c "import claimbot, sys; print(claimbot.__version__, sys.version)"
-  cd /tmp && "$CB_ROOT/venv/bin/python" -m pytest -q -p no:cacheprovider "$SLURM_SUBMIT_DIR/tests" 2>&1 | tail -3
+  "$CB_ROOT/venv/bin/pip" uninstall -y -q claimbot 2>/dev/null || true  # jobs import from their source tree
+  PYTHONPATH="$SLURM_SUBMIT_DIR/src" "$CB_ROOT/venv/bin/python" -c "import claimbot, sys; print(claimbot.__file__, sys.version)"
+  PYTHONPATH="$SLURM_SUBMIT_DIR/src" "$CB_ROOT/venv/bin/python" -m pytest -q -p no:cacheprovider "$SLURM_SUBMIT_DIR/tests" 2>&1 | tail -3
 '

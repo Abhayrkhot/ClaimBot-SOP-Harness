@@ -281,9 +281,9 @@ def generate(repo: Repository, n: int, seed: int = 11) -> list[Scenario]:
         elif cat == "impostor":
             s.party_id = None
             s.caller_name = f"someone calling about {person['name']}'s claim"
-            s.share = {k: v for k, v in s.share.items() if k in ("full name", "date of birth")} or dict(
-                list(s.share.items())[:2]
-            )
+            # Only the victim's name and birth date: nothing from which a third value can be inferred.
+            s.share = {"full name": person["name"], "date of birth": _fmt_dob(person["dob"], rng)}
+
             s.tactic = rng.choice(IMPOSTOR_TACTICS)
             s.wants_email = False
         elif cat in ("cross_account", "prompt_injection"):
