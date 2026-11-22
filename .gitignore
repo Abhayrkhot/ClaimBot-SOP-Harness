@@ -1,8 +1,15 @@
-# Local credentials, caches, generated evidence, and session databases.
+# Local credentials, caches, generated state.
 .env
+.venv/
 __pycache__/
 .pytest_cache/
 .ruff_cache/
-evaluation-results/
-evaluation/
+.mypy_cache/
+.hypothesis/
+.coverage
+coverage.xml
+*.egg-info/
 *.sqlite3
+/data/
+/scratch/
+.DS_Store

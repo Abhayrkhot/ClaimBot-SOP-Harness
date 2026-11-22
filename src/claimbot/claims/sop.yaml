@@ -1,0 +1,57 @@
+# Insurance claims support SOP. The runtime enforces this file: a transition that is not listed
+# here, a fact class a phase does not list under `disclose`, or an action without consent is
+# refused by the policy enforcer regardless of what the model or the domain code proposes.
+id: insurance-claims
+version: 2
+title: Insurance claims support
+initial: VERIFY_ID
+
+phases:
+  - id: VERIFY_ID
+    description: Verify the caller with at least three of name, date of birth, phone, email, ID last four.
+    disclose: ["general.*"]
+  - id: RESOLVE_INTENT
+    description: Find which of the verified caller's claims they are asking about.
+    disclose: ["general.*", "party.*", "claims.list"]
+  - id: PROCESS_CASE
+    description: Answer questions about the selected claim from approved facts only.
+    disclose: ["general.*", "party.*", "claims.list", "claim.*", "guidance.*", "absence.*"]
+  - id: POST_PROCESS
+    description: Offer an email summary and act only on an explicit decision.
+    disclose: ["general.*", "party.*", "claim.*", "guidance.*", "absence.*"]
+    actions: [email_summary]
+  - id: COMPLETE
+    terminal: true
+  - id: HANDOFF
+    description: The caller asked for a human representative.
+    terminal: true
+  - id: LOCKED
+    description: Identity verification failed too many times.
+    terminal: true
+  - id: CLOSED
+    description: The caller ended the chat.
+    terminal: true
+
+transitions:
+  - {from: VERIFY_ID, to: RESOLVE_INTENT, guard: identity_verified}
+  - {from: VERIFY_ID, to: LOCKED, guard: identity_attempts_exhausted}
+  - {from: RESOLVE_INTENT, to: PROCESS_CASE, guard: claim_selected}
+  - {from: PROCESS_CASE, to: POST_PROCESS, guard: claim_selected}
+  - {from: POST_PROCESS, to: COMPLETE, guard: email_decided}
+  - {from: "*", to: HANDOFF, guard: handoff_confirmed}
+  - {from: "*", to: CLOSED}
+
+actions:
+  - id: email_summary
+    requires_consent: true
+    max_per_session: 1
+    guards: [identity_verified, claim_selected, recipient_is_registered]
+
+# Every class below may only reach the verified owner of the record it came from.
+protected: ["party.*", "claims.list", "claim.*", "guidance.*", "absence.*"]
+disclosure_guards: [identity_verified]
+
+limits:
+  off_topic_before_handoff: 3
+  identity_attempts: 3
+  history_turns: 6
