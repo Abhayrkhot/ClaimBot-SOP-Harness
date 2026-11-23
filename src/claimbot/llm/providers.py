@@ -24,6 +24,28 @@ _FALLBACK_MODELS = {
 }
 
 
+def _retryable(status: int) -> bool:
+    return status in (408, 409, 429) or status >= 500
+
+
+def status_label(exc: Any) -> str:
+    """``HTTP <status> <code>`` from a vendor error, without its message text.
+
+    Provider messages can echo request details or key fragments, so only the status and the
+    machine-readable error code or type are kept; they are safe to log and to expose on /readyz.
+    """
+    code = getattr(exc, "code", None)
+    body = getattr(exc, "body", None)
+    if not code and isinstance(body, dict):
+        err = body.get("error", body)
+        if isinstance(err, dict):
+            code = err.get("code") or err.get("type")
+    label = f"HTTP {exc.status_code}"
+    if isinstance(code, (str, int)) and len(str(code)) <= 60:
+        label += f" {code}"
+    return label
+
+
 class OpenAICompatProvider:
     def __init__(
         self,
@@ -63,10 +85,10 @@ class OpenAICompatProvider:
                 extra_body=self.extra_body or None,
                 **kwargs,
             )
-        except (openai.APITimeoutError, openai.APIConnectionError, openai.RateLimitError) as exc:
-            raise ProviderError(type(exc).__name__, retryable=True) from exc
         except openai.APIStatusError as exc:
-            raise ProviderError(f"HTTP {exc.status_code}", retryable=exc.status_code >= 500) from exc
+            raise ProviderError(status_label(exc), retryable=_retryable(exc.status_code)) from exc
+        except (openai.APITimeoutError, openai.APIConnectionError) as exc:
+            raise ProviderError(type(exc).__name__, retryable=True) from exc
         choice = response.choices[0]
         if choice.finish_reason == "length":
             raise LLMOutputError("response truncated at max_tokens")
@@ -120,10 +142,10 @@ class AnthropicProvider:
                     timeout=timeout,
                     **kwargs,
                 )
-        except (anthropic.APITimeoutError, anthropic.APIConnectionError, anthropic.RateLimitError) as exc:
-            raise ProviderError(type(exc).__name__, retryable=True) from exc
         except anthropic.APIStatusError as exc:
-            raise ProviderError(f"HTTP {exc.status_code}", retryable=exc.status_code >= 500) from exc
+            raise ProviderError(status_label(exc), retryable=_retryable(exc.status_code)) from exc
+        except (anthropic.APITimeoutError, anthropic.APIConnectionError) as exc:
+            raise ProviderError(type(exc).__name__, retryable=True) from exc
         if response.stop_reason == "refusal":
             raise ProviderError("refusal", retryable=False)
         if response.stop_reason == "max_tokens":

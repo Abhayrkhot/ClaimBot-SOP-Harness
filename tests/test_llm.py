@@ -63,7 +63,8 @@ async def test_breaker_opens_and_skips_provider() -> None:
     client = LLMClient([bad, good], max_retries=0, breaker_threshold=2, backoff=0.001)
     for _ in range(3):
         await client.complete(REQ, deadline(), [])
-    assert client.health()["bad"] == "open"
+    assert client.health()["bad"]["state"] == "open"
+    assert client.health()["bad"]["last_error"] == "503"
     usage: list[Any] = []
     with pytest.raises(IndexError):
         await client.complete(REQ, deadline(), usage)  # good's queue is empty: proves bad was skipped

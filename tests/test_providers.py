@@ -148,3 +148,23 @@ async def test_anthropic_error_mapping(status: int, retryable: bool) -> None:
     with pytest.raises(ProviderError) as info:
         await p.complete(REQ, timeout=5)
     assert info.value.retryable is retryable
+
+
+async def test_error_label_keeps_status_and_code_but_not_message() -> None:
+    body = {"error": {"message": "Incorrect API key provided: sk-proj-abc...wxyz", "type": "invalid_request_error",
+                      "code": "invalid_api_key"}}  # fmt: skip
+    client = transport(lambda r: httpx.Response(401, json=body), [])
+    p = OpenAICompatProvider("qwen", "k", "http://vllm/v1", http_client=client)
+    with pytest.raises(ProviderError) as info:
+        await p.complete(REQ, timeout=5)
+    assert str(info.value) == "HTTP 401 invalid_api_key" and not info.value.retryable
+    assert "sk-" not in str(info.value)
+
+
+async def test_rate_limit_is_retryable_with_code() -> None:
+    body = {"error": {"message": "slow down", "type": "requests", "code": "rate_limit_exceeded"}}
+    client = transport(lambda r: httpx.Response(429, json=body), [])
+    p = OpenAICompatProvider("qwen", "k", "http://vllm/v1", http_client=client)
+    with pytest.raises(ProviderError) as info:
+        await p.complete(REQ, timeout=5)
+    assert str(info.value) == "HTTP 429 rate_limit_exceeded" and info.value.retryable

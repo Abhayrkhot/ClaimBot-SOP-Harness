@@ -202,9 +202,9 @@ def create_app(settings: Settings | None = None, runtime: Runtime | None = None)
     @app.get("/readyz")
     async def readyz(rt: Runtime = Depends(rt_dep)) -> JSONResponse:
         db_ok = await rt.store.ping()
-        breakers = rt.llm.health() if rt.llm else {}
-        model_ok = not breakers or any(state != "open" for state in breakers.values())
-        body = {"ok": db_ok and model_ok, "db": db_ok, "mode": rt.mode, "providers": breakers}
+        providers = rt.llm.health() if rt.llm else {}
+        model_ok = not providers or any(p["state"] != "open" for p in providers.values())
+        body = {"ok": db_ok and model_ok, "db": db_ok, "mode": rt.mode, "providers": providers}
         return JSONResponse(body, status_code=200 if body["ok"] else 503)
 
     @app.get("/api/health")
