@@ -9,6 +9,7 @@ provider in the chain. Each attempt is recorded for metrics and for the eval's c
 from __future__ import annotations
 
 import asyncio
+import logging
 import random
 import time
 from dataclasses import dataclass
@@ -16,6 +17,8 @@ from typing import Any
 
 from ..obs import metrics
 from .base import LLMOutputError, LLMRequest, LLMResponse, LLMUnavailable, Provider, ProviderError, parse_json
+
+LOG = logging.getLogger("claimbot.llm")
 
 
 @dataclass(frozen=True)
@@ -82,13 +85,23 @@ class LLMClient:
         self.max_retries = max_retries
         self.backoff = backoff
         self.breakers = {p.name: CircuitBreaker(breaker_threshold, breaker_reset) for p in providers}
+        self.last_error: dict[str, tuple[str, float]] = {}
+        """Provider name -> (error label, wall-clock time) of its most recent failed call."""
 
     @property
     def primary(self) -> Provider:
         return self.providers[0]
 
-    def health(self) -> dict[str, str]:
-        return {name: b.state for name, b in self.breakers.items()}
+    def health(self) -> dict[str, dict[str, Any]]:
+        """Breaker state and the most recent error label per provider (status and code only)."""
+        out: dict[str, dict[str, Any]] = {}
+        for name, breaker in self.breakers.items():
+            entry: dict[str, Any] = {"state": breaker.state, "last_error": None}
+            if name in self.last_error:
+                label, at = self.last_error[name]
+                entry.update(last_error=label, last_error_age_s=round(time.time() - at, 1))
+            out[name] = entry
+        return out
 
     async def complete(self, request: LLMRequest, deadline: float, usage: list[Any]) -> LLMResponse:
         last_error = "no provider available"
@@ -115,6 +128,13 @@ class LLMClient:
                     )
                     last_error = f"{provider.name}: {exc}"
                     self._record(usage, request, provider, outcome, started)
+                    label = "timeout" if isinstance(exc, TimeoutError) else str(exc)
+                    self.last_error[provider.name] = (label, time.time())
+                    LOG.warning(
+                        "llm call failed",
+                        extra={"provider": provider.name, "model": provider.model, "stage": request.stage,
+                               "attempt": attempt + 1, "outcome": outcome, "error": label},
+                    )  # fmt: skip
                     if not retryable:
                         break
                     breaker.failure()
